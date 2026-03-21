@@ -69,6 +69,7 @@
                         <i class="fas fa-sign-in-alt mr-1"></i>Вход
                     </a>
                 `;
+
                 return;
             }
             // Если есть токен, показываем кнопку выхода (имя можно получить из /users/me)
@@ -88,6 +89,11 @@
                     // токен невалиден
                     setToken(null);
                     nav.innerHTML = `<a href="/login" class="text-gray-700 hover:text-blue-600">Вход</a>`;
+                }
+                if (user.role.code === 'ADMIN') {
+                    nav.innerHTML += `
+                        <a href="/admin/users">Пользователи</a>
+                    `
                 }
             })
             .catch(() => {

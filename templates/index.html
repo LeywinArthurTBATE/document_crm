@@ -16,8 +16,13 @@
         <input type="text" id="search" placeholder="Поиск по названию..." class="px-4 py-2 border border-gray-300 rounded-lg">
         <select id="status" class="px-4 py-2 border border-gray-300 rounded-lg">
             <option value="">Все статусы</option>
-            <option value="PENDING">Ожидает</option>
+            <option value="NEW">Ожидает</option>
             <option value="IN_PROGRESS">В работе</option>
+            <option value="ON_REVIEW">На проверке</option>
+            <option value="REJECTED">Отклонено</option>
+            <option value="REVISION">На доработке</option>
+            <option value="CANCELLED">Отменено</option>
+            <option value="PAUSED">Пауза</option>
             <option value="DONE">Выполнено</option>
         </select>
         <input type="date" id="deadline_from" class="px-4 py-2 border border-gray-300 rounded-lg">
@@ -67,7 +72,9 @@
             </div>
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-semibold mb-2">Исполнитель (ID)</label>
-                <input type="text" id="executor_id" name="executor_id" placeholder="UUID исполнителя" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                <select id="executor_id" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                    <option value="">Я</option>
+                </select>
             </div>
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-semibold mb-2">Срок *</label>
@@ -75,13 +82,22 @@
             </div>
             <div class="mb-4" id="fileInputWrapper">
                 <label class="block text-gray-700 text-sm font-semibold mb-2">Файл *</label>
-                <input type="file" id="file" name="file" class="w-full border border-gray-300 rounded-lg p-2">
+                <input type="file"
+                       id="file"
+                       name="file"
+                       accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.png,.webp"
+                       class="w-full border border-gray-300 rounded-lg p-2">
             </div>
             <div class="mb-4 hidden" id="statusWrapper">
                 <label class="block text-gray-700 text-sm font-semibold mb-2">Статус</label>
                 <select id="statusSelect" name="status" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                    <option value="PENDING">Ожидает</option>
+                    <option value="NEW">Ожидает</option>
                     <option value="IN_PROGRESS">В работе</option>
+                    <option value="ON_REVIEW">На проверке</option>
+                    <option value="REJECTED">Отклонено</option>
+                    <option value="REVISION">На доработке</option>
+                    <option value="CANCELLED">Отменено</option>
+                    <option value="PAUSED">Пауза</option>
                     <option value="DONE">Выполнено</option>
                 </select>
             </div>
@@ -94,6 +110,36 @@
 </div>
 
 <script>
+
+    let currentUser = null;
+
+    async function loadUsers() {
+        const token = getToken();
+
+        // текущий пользователь
+        const meRes = await fetch('/users/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        currentUser = await meRes.json();
+
+        // список пользователей
+        const res = await fetch('/users', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const users = await res.json();
+
+        const select = document.getElementById('executor_id');
+
+        select.innerHTML = '<option value="">Я</option>';
+
+        users.forEach(u => {
+            const option = document.createElement('option');
+            option.value = u.id;
+            option.textContent = u.full_name;
+            select.appendChild(option);
+        });
+    }
     // Загрузка документов
     async function loadDocuments() {
         const token = getToken();
@@ -126,6 +172,41 @@
             document.getElementById('documentsList').innerHTML = '<tr><td colspan="7" class="text-center py-4 text-red-500">Ошибка загрузки документов</td></tr>';
         }
     }
+    async function downloadDocument(docId, fileName) {
+        const token = getToken();
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/documents/${docId}/download`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!res.ok) {
+                throw new Error(`Ошибка скачивания: ${res.status}`);
+            }
+
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = fileName || "file";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            window.URL.revokeObjectURL(url);
+
+        } catch (err) {
+            console.error(err);
+            alert("Не удалось скачать файл");
+        }
+    }
 
     function renderDocuments(docs) {
         const tbody = document.getElementById('documentsList');
@@ -142,11 +223,17 @@
                         ${getStatusText(doc.status)}
                     </span>
                 </td>
-                <td class="py-3 px-4">${doc.executor_id ? doc.executor_id.slice(0,8)+'…' : '-'}</td>
+                <td class="py-3 px-4">
+                    ${doc.executor_name || 'Я'}
+                </td>
                 <td class="py-3 px-4">${doc.deadline}</td>
                 <td class="py-3 px-4">${doc.is_overdue ? '<i class="fas fa-exclamation-triangle text-red-500"></i>' : '-'}</td>
                 <td class="py-3 px-4">
-                    ${doc.file_name ? `<a href="/documents/${doc.id}/download" class="text-blue-600 hover:underline"><i class="fas fa-download"></i></a>` : '-'}
+                ${doc.file_name
+                  ? `<button onclick="downloadDocument('${doc.id}', '${doc.file_name}')" class="text-blue-600 hover:underline">
+                        <i class="fas fa-download"></i>
+                     </button>`
+                  : '-'}
                 </td>
                 <td class="py-3 px-4 space-x-2">
                     <button onclick="editDocument('${doc.id}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>
@@ -156,31 +243,31 @@
             </tr>
         `).join('');
     }
+    const STATUS_MAP = {
+        NEW: { text: 'Ожидает', class: 'bg-yellow-100 text-yellow-800' },
+        IN_PROGRESS: { text: 'В работе', class: 'bg-blue-100 text-blue-800' },
+        ON_REVIEW: { text: 'На проверке', class: 'bg-purple-100 text-purple-800' },
+        REJECTED: { text: 'Отклонено', class: 'bg-red-100 text-red-800' },
+        REVISION: { text: 'На доработке', class: 'bg-orange-100 text-orange-800' },
+        CANCELLED: { text: 'Отменено', class: 'bg-gray-100 text-gray-800' },
+        PAUSED: { text: 'Пауза', class: 'bg-gray-200 text-gray-700' },
+        DONE: { text: 'Выполнено', class: 'bg-green-100 text-green-800' },
+    };
+    function getStatusText(status) {
+        return STATUS_MAP[status]?.text || status;
+    }
 
     function getStatusClass(status) {
-        switch(status) {
-            case 'DONE': return 'bg-green-100 text-green-800';
-            case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800';
-            default: return 'bg-yellow-100 text-yellow-800';
+        return STATUS_MAP[status]?.class || 'bg-gray-100';
+    }
+        function escapeHtml(str) {
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
         }
-    }
-
-    function getStatusText(status) {
-        switch(status) {
-            case 'DONE': return 'Выполнено';
-            case 'IN_PROGRESS': return 'В работе';
-            default: return 'Ожидает';
-        }
-    }
-
-    function escapeHtml(str) {
-        return str.replace(/[&<>]/g, function(m) {
-            if (m === '&') return '&amp;';
-            if (m === '<') return '&lt;';
-            if (m === '>') return '&gt;';
-            return m;
-        });
-    }
 
     // Модальное окно создания/редактирования
     let currentDocId = null;
@@ -191,6 +278,7 @@
         document.getElementById('fileInputWrapper').classList.remove('hidden');
         document.getElementById('statusWrapper').classList.add('hidden');
         document.getElementById('modal').classList.remove('hidden');
+        loadUsers();
     }
 
     async function editDocument(docId) {
@@ -278,11 +366,21 @@
                     headers: { 'Authorization': `Bearer ${token}` },
                     body: formData
                 });
-                if (!response.ok) throw new Error();
-                closeModal();
-                loadDocuments();
+
+                if (!response.ok) {
+                    let errorText = "Ошибка создания документа";
+
+                    try {
+                        const data = await response.json();
+                        errorText = data.detail || errorText;
+                    } catch (e) {
+                        errorText = await response.text();
+                    }
+
+                    throw new Error(errorText);
+                }
             } catch (err) {
-                alert('Ошибка создания документа');
+                alert(err.message);
             }
         }
     });

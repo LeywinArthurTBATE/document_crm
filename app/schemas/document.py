@@ -11,6 +11,9 @@ class DocumentCreate(BaseModel):
     executor_id: Optional[UUID]
     deadline: date
 
+    file_name: str
+    file_path: str
+
 
 class DocumentResponse(BaseModel):
     id: UUID
@@ -39,8 +42,9 @@ class DocumentListResponse(BaseModel):
     status: str
     deadline: date
     executor_id: Optional[UUID]
+    executor_name: str | None  # ← новое поле
     file_name: str | None
-
+    is_overdue: bool
     @field_validator("status", mode="before")
     def convert_status(cls, v):
         return v.value if hasattr(v, "value") else v

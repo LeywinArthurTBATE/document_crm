@@ -4,10 +4,21 @@ from typing import Optional
 from uuid import UUID
 from datetime import date
 
+from app.models import User
 from app.models.document import Document, DocumentStatus
 
 
 class DocumentRepository:
+
+    @staticmethod
+    async def get_by_id(db: AsyncSession, doc_id: UUID) -> Optional[Document]:
+        result = await db.execute(
+            select(Document).where(
+                Document.id == doc_id,
+                Document.is_deleted.is_(False)
+            )
+        )
+        return result.scalar_one_or_none()
 
     @staticmethod
     async def get_list(
@@ -21,7 +32,10 @@ class DocumentRepository:
         is_overdue: Optional[bool] = None,
         limit: int = 50, offset: int = 0
     ):
-        query = select(Document).where(Document.is_deleted == False)
+        query = (
+            select(Document, User)
+            .outerjoin(User, Document.executor_id == User.id).where(Document.is_deleted == False)
+        )
 
         # 🔒 ограничение доступа (если не админ)
         if user.role.code != "ADMIN":
@@ -53,6 +67,22 @@ class DocumentRepository:
             query = query.where(and_(*filters))
 
         query = query.order_by(Document.created_at.desc())
+
         query = query.limit(limit).offset(offset)
         result = await db.execute(query)
-        return result.scalars().all()
+        rows = result.all()
+
+        data = []
+        for doc, executor in rows:
+            data.append({
+                "id": doc.id,
+                "title": doc.title,
+                "status": doc.status.value,
+                "deadline": doc.deadline,
+                "executor_id": doc.executor_id,
+                "executor_name": executor.full_name if executor else None,
+                "is_overdue": doc.is_overdue,
+                "file_name": doc.file_name
+            })
+
+        return data

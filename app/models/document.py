@@ -39,7 +39,7 @@ class Document(Base):
     )
 
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    executor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    executor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
     deadline: Mapped[date] = mapped_column(Date, nullable=False)
 

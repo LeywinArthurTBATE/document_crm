@@ -1,36 +1,40 @@
-from datetime import datetime
-
+from datetime import datetime, date
 from sqlalchemy import update, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models.document import Document, DocumentStatus
 
-
 async def process_overdue_documents(db: AsyncSession):
-    now = datetime.utcnow().date()
+    today = datetime.utcnow().date()
 
-    # 🔴 ставим overdue = True
-    stmt_overdue = (
+    # 🔴 ставим overdue
+    stmt = (
         update(Document)
         .where(
-            Document.deadline < now,
+            Document.deadline < today,
             Document.status != DocumentStatus.DONE,
-            Document.is_deleted == False,
+            Document.is_overdue.is_(False),
+            Document.is_deleted.is_(False)
         )
         .values(is_overdue=True)
     )
 
-    # 🟢 убираем overdue если исправили
+    # 🟢 снимаем overdue
     stmt_clear = (
         update(Document)
         .where(
-            (Document.deadline >= now) | (Document.status == DocumentStatus.DONE),
-            Document.is_overdue == True,
+            Document.is_overdue.is_(True),
+            Document.is_deleted.is_(False),
+            (
+                (Document.deadline >= today) |
+                (Document.status == DocumentStatus.DONE)
+            )
         )
         .values(is_overdue=False)
     )
 
-    await db.execute(stmt_overdue)
-    await db.execute(stmt_clear)
+    result1 = await db.execute(stmt)
+    result2 = await db.execute(stmt_clear)
 
     await db.commit()
+
+    print(f"[overdue_worker] set={result1.rowcount}, cleared={result2.rowcount}")

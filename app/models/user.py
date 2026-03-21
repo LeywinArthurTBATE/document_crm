@@ -11,8 +11,8 @@ import enum
 
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"
+    MANAGER = "MANAGER"
     USER = "USER"
-
 
 class User(Base):
     __tablename__ = "users"

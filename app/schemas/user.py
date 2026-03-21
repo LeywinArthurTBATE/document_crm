@@ -11,12 +11,19 @@ class UserCreate(BaseModel):
     full_name: str
     role_id: UUID
 
+class RoleResponse(BaseModel):
+    code: str
+
+    model_config = {
+        "from_attributes": True
+    }
 
 class UserResponse(BaseModel):
-    id: str
+    id: UUID
     email: str
     full_name: str
-    role: str
+    role: RoleResponse
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True
+    }

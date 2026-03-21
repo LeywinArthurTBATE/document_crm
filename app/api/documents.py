@@ -6,11 +6,13 @@ from fastapi import (
     APIRouter, Depends, HTTPException, Query,
     UploadFile, File, Form
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
 from app.core.database import get_db
 from app.dependencies.auth import get_current_user
+from app.models import DocumentHistory
 from app.repositories.permissions import require_permission
 from app.schemas.document import (
     DocumentCreate,
@@ -19,7 +21,7 @@ from app.schemas.document import (
 )
 from app.services.document_service import DocumentService
 from app.repositories.document_repo import DocumentRepository
-from app.utils.file_storage import save_file
+from app.utils.file_storage import save_file, save_file_stream
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -68,23 +70,21 @@ async def create_document(
     user=Depends(get_current_user),
 ):
     await require_permission(db, user, "document.create")
-    # 🔒 Валидация файла
+
+    # 🔒 проверка расширения
     ext = file.filename.split(".")[-1].lower()
-    allowed = {"pdf", "doc", "docx", "xls", "xlsx", "jpg", "png"}
+    allowed = {"pdf", "doc", "docx", "xls", "xlsx", "jpg", "png", "webp"}
 
     if ext not in allowed:
         raise HTTPException(400, "Invalid file type")
 
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
+    # 💾 сохраняем файл потоково
+    try:
+        file_name, file_path = await save_file_stream(file)
+    except ValueError:
         raise HTTPException(400, "File too large")
 
-    file.file.seek(0)
-
-    # 💾 сохраняем файл
-    file_name, file_path = await save_file(file)
-
-    # создаем документ сразу с файлом
+    # создаем документ
     doc_data = DocumentCreate(
         title=title,
         description=description,

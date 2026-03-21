@@ -10,6 +10,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.on_event("startup")
 async def startup():
+    print("Starting up")
     if not scheduler.running:
+        print("Starting scheduler")
         start_scheduler()
 

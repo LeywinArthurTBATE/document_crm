@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Пользователи{% endblock %}
+
+{% block content %}
+<div class="bg-white p-6 rounded-xl shadow">
+
+    <div class="flex justify-between mb-4">
+        <h2 class="text-xl font-bold">Пользователи</h2>
+        <button onclick="openModal()" class="bg-blue-600 text-white px-4 py-2 rounded">
+            + Добавить
+        </button>
+    </div>
+
+    <table class="w-full">
+        <thead>
+            <tr class="text-left border-b">
+                <th>Email</th>
+                <th>Имя</th>
+                <th>Роль</th>
+            </tr>
+        </thead>
+        <tbody id="usersTable"></tbody>
+    </table>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
+    <div class="bg-white p-6 rounded-xl w-96">
+        <h3 class="mb-4 font-bold">Создать пользователя</h3>
+
+        <input id="email" placeholder="Email" class="w-full mb-2 border p-2 rounded">
+        <input id="password" type="password" placeholder="Пароль" class="w-full mb-2 border p-2 rounded">
+        <input id="full_name" placeholder="Имя" class="w-full mb-2 border p-2 rounded">
+
+        <select id="role_id" class="w-full mb-4 border p-2 rounded"></select>
+        <div class="flex justify-end gap-2">
+            <button onclick="closeModal()">Отмена</button>
+            <button onclick="createUser()" class="bg-blue-600 text-white px-4 py-2 rounded">Создать</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadUsers() {
+    const token = getToken()
+
+    const res = await fetch('/users', {
+        headers: { Authorization: `Bearer ${token}` }
+    })
+
+    const users = await res.json()
+
+    const table = document.getElementById('usersTable')
+
+    table.innerHTML = users.map(u => `
+        <tr class="border-b">
+            <td>${u.email}</td>
+            <td>${u.full_name}</td>
+            <td>${u.role.code}</td>
+        </tr>
+    `).join('')
+}
+
+function openModal() {
+    document.getElementById('modal').classList.remove('hidden')
+    loadRoles()
+}
+function closeModal() {
+    document.getElementById('modal').classList.add('hidden')
+}
+async function loadRoles() {
+    const token = getToken()
+
+    const res = await fetch('/users/roles', {
+        headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (!res.ok) {
+        alert("Ошибка загрузки ролей")
+        return
+    }
+
+    const roles = await res.json()
+
+    const select = document.getElementById('role_id')
+
+    select.innerHTML = roles.map(r => `
+        <option value="${r.id}">${r.code}</option>
+    `).join('')
+}
+async function createUser() {
+    const token = getToken()
+
+    const data = {
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        full_name: document.getElementById('full_name').value,
+        role_id: document.getElementById('role_id').value
+    }
+
+    const res = await fetch('/users', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+
+    if (!res.ok) {
+        alert("Ошибка создания")
+        return
+    }
+
+    closeModal()
+    loadUsers()
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const token = getToken()
+
+    if (!token) {
+        window.location.href = '/login'
+        return
+    }
+
+    const res = await fetch('/users/me', {
+        headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (!res.ok) {
+        setToken(null)
+        window.location.href = '/login'
+        return
+    }
+
+    const user = await res.json()
+
+    if (user.role.code !== 'ADMIN') {
+        alert('Нет доступа')
+        window.location.href = '/'
+        return
+    }
+
+    loadUsers()
+})
+</script>
+
+{% endblock %}
