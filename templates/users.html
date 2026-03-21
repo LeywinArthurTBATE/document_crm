@@ -1,150 +1,401 @@
 {% extends "base.html" %}
 
-{% block title %}Пользователи{% endblock %}
+{% block title %}Управление пользователями{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Анимации и дополнительные стили */
+    .fade-in {
+        animation: fadeInUp 0.4s ease forwards;
+    }
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    .modal {
+        transition: opacity 0.2s ease;
+    }
+    .modal-content {
+        transform: scale(0.95);
+        transition: transform 0.2s ease;
+    }
+    .modal.show .modal-content {
+        transform: scale(1);
+    }
+    .toast {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        background: #1f2937;
+        color: white;
+        padding: 0.75rem 1.25rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        z-index: 1000;
+        animation: slideUp 0.3s ease;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+    @keyframes slideUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    /* Стили для ролей */
+    .role-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .role-admin {
+        background-color: #fee2e2;
+        color: #991b1b;
+    }
+    .role-user {
+        background-color: #dbeafe;
+        color: #1e40af;
+    }
+    .role-manager {
+        background-color: #dcfce7;
+        color: #166534;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="bg-white p-6 rounded-xl shadow">
-
-    <div class="flex justify-between mb-4">
-        <h2 class="text-xl font-bold">Пользователи</h2>
-        <button onclick="openModal()" class="bg-blue-600 text-white px-4 py-2 rounded">
-            + Добавить
-        </button>
+<div class="w-full">
+    <!-- Заголовок и кнопка создания -->
+    <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-6 mb-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-users text-blue-500"></i>
+                    Управление пользователями
+                </h1>
+                <p class="text-gray-500 text-sm mt-1">Добавление, редактирование и удаление учётных записей</p>
+            </div>
+            <button onclick="openCreateModal()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                <i class="fas fa-plus"></i> Добавить пользователя
+            </button>
+        </div>
     </div>
 
-    <table class="w-full">
-        <thead>
-            <tr class="text-left border-b">
-                <th>Email</th>
-                <th>Имя</th>
-                <th>Роль</th>
-            </tr>
-        </thead>
-        <tbody id="usersTable"></tbody>
-    </table>
-</div>
-
-<!-- Modal -->
-<div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
-    <div class="bg-white p-6 rounded-xl w-96">
-        <h3 class="mb-4 font-bold">Создать пользователя</h3>
-
-        <input id="email" placeholder="Email" class="w-full mb-2 border p-2 rounded">
-        <input id="password" type="password" placeholder="Пароль" class="w-full mb-2 border p-2 rounded">
-        <input id="full_name" placeholder="Имя" class="w-full mb-2 border p-2 rounded">
-
-        <select id="role_id" class="w-full mb-4 border p-2 rounded"></select>
-        <div class="flex justify-end gap-2">
-            <button onclick="closeModal()">Отмена</button>
-            <button onclick="createUser()" class="bg-blue-600 text-white px-4 py-2 rounded">Создать</button>
+    <!-- Таблица пользователей -->
+    <div class="bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Имя</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Роль</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTable" class="bg-white divide-y divide-gray-100">
+                    <tr>
+                        <td colspan="4" class="text-center py-8 text-gray-400">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
+<!-- Модальное окно для создания/редактирования -->
+<div id="userModal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="modal-content bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-blue-100">
+        <div class="flex justify-between items-center mb-4">
+            <h3 id="modalTitle" class="text-xl font-bold text-gray-800">Создать пользователя</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form id="userForm" onsubmit="event.preventDefault(); saveUser();">
+            <input type="hidden" id="userId" name="userId">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Email *</label>
+                <input type="email" id="email" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Полное имя *</label>
+                <input type="text" id="fullName" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none">
+            </div>
+            <div class="mb-4" id="passwordField">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Пароль</label>
+                <input type="password" id="password"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none">
+                <p class="text-xs text-gray-400 mt-1">Оставьте пустым, если не хотите менять пароль (только при редактировании)</p>
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Роль</label>
+                <select id="roleId" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">Отмена</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg transition shadow-sm">
+                    <i class="fas fa-save mr-1"></i> Сохранить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
-async function loadUsers() {
-    const token = getToken()
+    let currentUserId = null; // null = создание, иначе редактирование
 
-    const res = await fetch('/users', {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-
-    const users = await res.json()
-
-    const table = document.getElementById('usersTable')
-
-    table.innerHTML = users.map(u => `
-        <tr class="border-b">
-            <td>${u.email}</td>
-            <td>${u.full_name}</td>
-            <td>${u.role.code}</td>
-        </tr>
-    `).join('')
-}
-
-function openModal() {
-    document.getElementById('modal').classList.remove('hidden')
-    loadRoles()
-}
-function closeModal() {
-    document.getElementById('modal').classList.add('hidden')
-}
-async function loadRoles() {
-    const token = getToken()
-
-    const res = await fetch('/users/roles', {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-
-    if (!res.ok) {
-        alert("Ошибка загрузки ролей")
-        return
+    // --- Вспомогательные функции ---
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>${message}`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
     }
 
-    const roles = await res.json()
-
-    const select = document.getElementById('role_id')
-
-    select.innerHTML = roles.map(r => `
-        <option value="${r.id}">${r.code}</option>
-    `).join('')
-}
-async function createUser() {
-    const token = getToken()
-
-    const data = {
-        email: document.getElementById('email').value,
-        password: document.getElementById('password').value,
-        full_name: document.getElementById('full_name').value,
-        role_id: document.getElementById('role_id').value
+    function getRoleClass(roleCode) {
+        const role = roleCode.toLowerCase();
+        if (role === 'admin') return 'role-admin';
+        if (role === 'manager') return 'role-manager';
+        return 'role-user';
     }
 
-    const res = await fetch('/users', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-    })
+    // --- Загрузка списка пользователей ---
+    async function loadUsers() {
+        try {
+            const res = await fetch('/users', {
+                credentials: 'include'
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            if (!res.ok) throw new Error('Ошибка загрузки');
+            const users = await res.json();
 
-    if (!res.ok) {
-        alert("Ошибка создания")
-        return
+            const tbody = document.getElementById('usersTable');
+            if (!users.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-gray-400">Нет пользователей</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => `
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${escapeHtml(user.email)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${escapeHtml(user.full_name)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="role-badge ${getRoleClass(user.role.code)}">${user.role.code}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="editUser('${user.id}')" class="text-blue-600 hover:text-blue-800 mr-3">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button onclick="deleteUser('${user.id}')" class="text-red-500 hover:text-red-700">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            console.error(err);
+            showToast('Ошибка загрузки пользователей', 'error');
+        }
     }
 
-    closeModal()
-    loadUsers()
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-    const token = getToken()
-
-    if (!token) {
-        window.location.href = '/login'
-        return
+    // --- Загрузка списка ролей ---
+    async function loadRoles() {
+        try {
+            const res = await fetch('/users/roles', {
+                credentials: 'include'
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            if (!res.ok) throw new Error('Ошибка загрузки ролей');
+            const roles = await res.json();
+            const select = document.getElementById('roleId');
+            select.innerHTML = roles.map(r => `
+                <option value="${r.id}">${r.code}</option>
+            `).join('');
+        } catch (err) {
+            showToast('Ошибка загрузки ролей', 'error');
+        }
     }
 
-    const res = await fetch('/users/me', {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-
-    if (!res.ok) {
-        setToken(null)
-        window.location.href = '/login'
-        return
+    // --- Модальное окно: создание ---
+    function openCreateModal() {
+        currentUserId = null;
+        document.getElementById('modalTitle').innerText = 'Создать пользователя';
+        document.getElementById('userId').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('fullName').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('passwordField').style.display = 'block';
+        document.getElementById('userModal').classList.remove('hidden');
+        loadRoles();
     }
 
-    const user = await res.json()
+    // --- Модальное окно: редактирование ---
+    async function editUser(userId) {
+        try {
+            const res = await fetch(`/users/${userId}`, {
+                credentials: 'include'
+            });
+            if (!res.ok) throw new Error('Не удалось загрузить пользователя');
+            const user = await res.json();
 
-    if (user.role.code !== 'ADMIN') {
-        alert('Нет доступа')
-        window.location.href = '/'
-        return
+            currentUserId = userId;
+            document.getElementById('modalTitle').innerText = 'Редактировать пользователя';
+            document.getElementById('userId').value = userId;
+            document.getElementById('email').value = user.email;
+            document.getElementById('fullName').value = user.full_name;
+            document.getElementById('password').value = '';
+            document.getElementById('passwordField').style.display = 'block';
+            // Загружаем роли и устанавливаем выбранную
+            await loadRoles();
+            const roleSelect = document.getElementById('roleId');
+            if (roleSelect) {
+                for (let i = 0; i < roleSelect.options.length; i++) {
+                    if (roleSelect.options[i].text === user.role.code) {
+                        roleSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+            document.getElementById('userModal').classList.remove('hidden');
+        } catch (err) {
+            showToast('Ошибка загрузки данных пользователя', 'error');
+        }
     }
 
-    loadUsers()
-})
+    // --- Закрыть модальное окно ---
+    function closeModal() {
+        document.getElementById('userModal').classList.add('hidden');
+        currentUserId = null;
+    }
+
+    // --- Сохранить (создать или обновить) ---
+    async function saveUser() {
+        const userId = document.getElementById('userId').value;
+        const email = document.getElementById('email').value.trim();
+        const fullName = document.getElementById('fullName').value.trim();
+        const password = document.getElementById('password').value;
+        const roleId = document.getElementById('roleId').value;
+
+        if (!email || !fullName || !roleId) {
+            showToast('Заполните все обязательные поля', 'error');
+            return;
+        }
+
+        const payload = {
+            email,
+            full_name: fullName,
+            role_id: roleId
+        };
+        if (password) payload.password = password;
+
+        let url = '/users';
+        let method = 'POST';
+        if (userId) {
+            url = `/users/${userId}`;
+            method = 'PATCH';
+        }
+
+        try {
+            const res = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.detail || 'Ошибка сохранения');
+            }
+
+            closeModal();
+            loadUsers();
+            showToast(userId ? 'Пользователь обновлён' : 'Пользователь создан');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    // --- Удаление пользователя ---
+    async function deleteUser(userId) {
+        if (!confirm('Вы уверены, что хотите удалить этого пользователя? Это действие необратимо.')) return;
+
+        try {
+            const res = await fetch(`/users/${userId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.detail || 'Ошибка удаления');
+            }
+
+            loadUsers();
+            showToast('Пользователь удалён');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    // --- Проверка прав доступа при загрузке страницы ---
+    async function checkAccess() {
+        try {
+            const res = await fetch('/users/me', {
+                credentials: 'include'
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return false;
+            }
+            if (!res.ok) throw new Error('Ошибка авторизации');
+            const user = await res.json();
+            if (user.role.code !== 'ADMIN') {
+                alert('Нет доступа к этой странице');
+                window.location.href = '/';
+                return false;
+            }
+            return true;
+        } catch (err) {
+            window.location.href = '/login';
+            return false;
+        }
+    }
+
+    // --- Инициализация ---
+    document.addEventListener('DOMContentLoaded', async () => {
+        const hasAccess = await checkAccess();
+        if (hasAccess) {
+            loadUsers();
+        }
+    });
 </script>
-
 {% endblock %}

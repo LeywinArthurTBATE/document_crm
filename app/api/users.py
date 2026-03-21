@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -7,7 +9,7 @@ from app.core.database import get_db
 from app.dependencies.auth import get_current_user
 from app.core.security import hash_password
 from app.models.permission import Role
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -90,3 +92,67 @@ async def get_roles(
         }
         for r in roles
     ]
+
+@router.delete("/{user_id}")
+async def delete_user(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # только админ
+    if current_user.role.code != "ADMIN":
+        raise HTTPException(403, "Not enough permissions")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # нельзя удалить самого себя (важно)
+    if user.id == current_user.id:
+        raise HTTPException(400, "You cannot deactivate yourself")
+
+    user.is_active = False
+
+    await db.commit()
+
+    return {"status": "deactivated"}
+
+@router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: UUID,
+    data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role.code != "ADMIN":
+        raise HTTPException(403, "Not enough permissions")
+
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.role))
+        .where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # обновления
+    if data.email:
+        user.email = data.email
+
+    if data.full_name:
+        user.full_name = data.full_name
+
+    if data.role_id:
+        user.role_id = data.role_id
+
+    if data.password:
+        user.password_hash = hash_password(data.password)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return user

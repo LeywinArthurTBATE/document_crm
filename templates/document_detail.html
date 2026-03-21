@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+
+{% block title %}Документ: {{ doc.title }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Стили для кнопок статусов (можно оставить из старого, но переделаем) */
+    .status-btn {
+        transition: all 0.2s ease;
+        min-width: 100px;
+        white-space: nowrap;
+    }
+    .status-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    /* Анимация для появления истории */
+    .history-item {
+        animation: fadeInUp 0.3s ease backwards;
+    }
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    /* Стили для модального окна */
+    .modal {
+        transition: opacity 0.2s ease;
+    }
+    .modal-content {
+        transform: scale(0.95);
+        transition: transform 0.2s ease;
+    }
+    .modal.show .modal-content {
+        transform: scale(1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto px-4 py-6 fade-in">
+
+    <!-- Заголовок и статус -->
+    <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-6 mb-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-file-alt text-blue-500"></i>
+                    {{ doc.title }}
+                </h1>
+                <div class="flex items-center gap-3 mt-2">
+                    <span class="status-badge {{ get_status_class(doc.status.value) }}">
+                        {{ get_status_text(doc.status.value) }}
+                    </span>
+                    {% if doc.is_overdue %}
+                        <span class="text-red-500 text-sm font-semibold flex items-center gap-1">
+                            <i class="fas fa-exclamation-triangle"></i> Просрочен
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if user.role.code in ["ADMIN", "MANAGER"] %}
+            <button onclick="openExecutorModal()"
+                    class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-all flex items-center gap-2">
+                <i class="fas fa-user-plus"></i> Назначить исполнителя
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Статусы (как прогресс-бары) -->
+    <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-5 mb-6">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <i class="fas fa-tasks text-blue-500"></i> Жизненный цикл
+        </h2>
+        <div class="relative">
+            <div class="flex flex-wrap gap-2 justify-between items-center">
+                {% set stages = [
+                    ("NEW", "Ожидает", "fas fa-hourglass-half"),
+                    ("IN_PROGRESS", "В работе", "fas fa-play"),
+                    ("ON_REVIEW", "На проверке", "fas fa-eye"),
+                    ("REJECTED", "Отклонено", "fas fa-times-circle"),
+                    ("REVISION", "На доработке", "fas fa-edit"),
+                    ("CANCELLED", "Отменено", "fas fa-ban"),
+                    ("PAUSED", "Пауза", "fas fa-pause"),
+                    ("DONE", "Выполнено", "fas fa-check-circle")
+                ] %}
+                {% set codes = stages | map(attribute=0) | list %}
+                {% set current_index = codes.index(doc.status) if doc.status in codes else -1 %}
+
+                {% for code, label, icon in stages %}
+                    {% set index = loop.index0 %}
+                    <div class="flex flex-col items-center flex-1 min-w-[80px]">
+                        <button onclick="setStatus('{{ code }}')"
+                                class="status-btn w-full py-2 rounded-lg text-center transition-all
+                                {% if doc.status == code %}
+                                    bg-blue-600 text-white shadow-md
+                                {% elif index < current_index %}
+                                    bg-blue-100 text-blue-700
+                                {% else %}
+                                    bg-gray-100 text-gray-500 hover:bg-gray-200
+                                {% endif %}
+                                ">
+                            <i class="{{ icon }} mr-1"></i>
+                            <span class="text-sm hidden sm:inline">{{ label }}</span>
+                        </button>
+                        <!-- всегда есть контейнер под стрелку -->
+                        <div class="hidden md:block text-gray-300 mt-2 h-[16px]">
+                            {% if not loop.last %}
+                                →
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Основная информация и история -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Левая колонка: информация о документе -->
+        <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-info-circle text-blue-500"></i> Информация
+            </h2>
+            <div class="space-y-3">
+                <div class="flex items-start">
+                    <div class="w-24 text-gray-500 text-sm">Автор:</div>
+                    <div class="flex-1 font-medium text-gray-800">{{ doc.author.full_name }}</div>
+                </div>
+                <div class="flex items-start">
+                    <div class="w-24 text-gray-500 text-sm">Исполнитель:</div>
+                    <div class="flex-1 font-medium text-gray-800">
+                        {% if doc.executor %}
+                            {{ doc.executor.full_name }}
+                        {% else %}
+                            <span class="text-gray-400 italic">не назначен</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="flex items-start">
+                    <div class="w-24 text-gray-500 text-sm">Срок выполнения:</div>
+                    <div class="flex-1 font-medium text-gray-800">{{ doc.deadline }}</div>
+                </div>
+                <div class="flex items-start">
+                    <div class="w-24 text-gray-500 text-sm">Создан:</div>
+                    <div class="flex-1 font-medium text-gray-800">{{ doc.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                </div>
+                {% if doc.description %}
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <h3 class="font-semibold text-gray-700 mb-2">Описание</h3>
+                    <p class="text-gray-600 text-sm whitespace-pre-line">{{ doc.description }}</p>
+                </div>
+                {% endif %}
+                {% if doc.file_name %}
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <button onclick="downloadFile()"
+                            class="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition">
+                        <i class="fas fa-download"></i> Скачать файл ({{ doc.file_name }})
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Правая колонка: история изменений -->
+        <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-history text-blue-500"></i> История изменений
+            </h2>
+            <div id="historyList" class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                <div class="flex justify-center py-8">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для назначения исполнителя -->
+<div id="executorModal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="modal-content bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-blue-100">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold text-gray-800">Назначить исполнителя</h3>
+            <button onclick="closeExecutorModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <div>
+            <label class="block text-gray-700 text-sm font-semibold mb-1">Выберите пользователя</label>
+            <select id="executorSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none">
+                <option value="">Не назначен</option>
+            </select>
+        </div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="closeExecutorModal()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">Отмена</button>
+            <button onclick="assignExecutor()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-sm">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const docId = "{{ doc.id }}";
+
+const FIELD_LABELS = {
+    status: "Статус",
+    executor_id: "Исполнитель",
+    deadline: "Срок",
+    title: "Название",
+    description: "Описание"
+};
+
+const STATUS_LABELS = {
+    NEW: "Ожидает",
+    IN_PROGRESS: "В работе",
+    ON_REVIEW: "На проверке",
+    REJECTED: "Отклонено",
+    REVISION: "На доработке",
+    CANCELLED: "Отменено",
+    PAUSED: "Пауза",
+    DONE: "Выполнено"
+};
+
+async function setStatus(status) {
+    try {
+        const res = await fetch(`/documents/${docId}`, {
+            method: "PATCH",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status }),
+            credentials: 'include'
+        });
+
+        if (!res.ok) throw new Error();
+
+        window.location.reload();
+    } catch (err) {
+        showToast("Ошибка смены статуса", "error");
+    }
+}
+
+async function downloadFile() {
+    try {
+        const res = await fetch(`/documents/${docId}/download`, {
+            credentials: 'include'
+        });
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "{{ doc.file_name }}";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        showToast("Ошибка скачивания файла", "error");
+    }
+}
+
+function formatValue(field, value) {
+    if (value === null || value === undefined || value === "") return "—";
+
+    if (field === "status") return STATUS_LABELS[value] || value;
+
+    return value;
+}
+
+async function loadHistory() {
+    try {
+        const res = await fetch(`/documents/${docId}/history`, {
+            credentials: 'include'
+        });
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+        const el = document.getElementById("historyList");
+
+        if (!data.length) {
+            el.innerHTML = '<p class="text-gray-400 text-center">История пуста</p>';
+            return;
+        }
+
+        el.innerHTML = data.map((h, idx) => {
+            const field = FIELD_LABELS[h.field] || h.field;
+
+            const oldVal = formatValue(h.field, h.old_value);
+            const newVal = formatValue(h.field, h.new_value);
+
+            const date = new Date(h.created_at);
+            const formattedDate = date.toLocaleString();
+
+            return `
+                <div class="history-item border-l-4 border-blue-200 pl-3 py-2" style="animation-delay: ${idx * 0.03}s">
+                    <div class="text-xs text-gray-400 mb-1">${formattedDate}</div>
+                    <div class="text-sm">
+                        <span class="font-semibold">${field}</span>:
+                        <span class="text-gray-600">${escapeHtml(oldVal || "—")}</span>
+                        <i class="fas fa-arrow-right text-xs mx-1 text-gray-400"></i>
+                        <span class="text-gray-800 font-medium">${escapeHtml(newVal || "—")}</span>
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+    } catch (err) {
+        document.getElementById("historyList").innerHTML =
+            '<p class="text-red-500 text-center">Ошибка загрузки истории</p>';
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+
+// Модалка для исполнителя
+async function openExecutorModal() {
+    // Загружаем список пользователей
+    try {
+        const res = await fetch('/users', {
+            credentials: 'include'
+        });
+        const users = await res.json();
+        const select = document.getElementById('executorSelect');
+        select.innerHTML = '<option value="">Не назначен</option>';
+        users.forEach(u => {
+            const option = document.createElement('option');
+            option.value = u.id;
+            option.textContent = u.full_name;
+            if (u.id === "{{ doc.executor_id }}") option.selected = true;
+            select.appendChild(option);
+        });
+        document.getElementById('executorModal').classList.remove('hidden');
+    } catch (err) {
+        showToast("Не удалось загрузить пользователей", "error");
+    }
+}
+
+function closeExecutorModal() {
+    document.getElementById('executorModal').classList.add('hidden');
+}
+
+async function assignExecutor() {
+    const executorId = document.getElementById('executorSelect').value || null;
+    try {
+        const res = await fetch(`/documents/${docId}`, {
+            method: "PATCH",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ executor_id: executorId }),
+            credentials: 'include'
+        });
+        if (!res.ok) throw new Error();
+        closeExecutorModal();
+        showToast("Исполнитель назначен", "success");
+        setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+        showToast("Ошибка назначения исполнителя", "error");
+    }
+}
+
+// Функция для показа уведомлений (если нет в base, добавим)
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>${message}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Вспомогательные функции для отображения статусов (используются в шаблоне)
+function get_status_text(status) {
+    return STATUS_LABELS[status] || status;
+}
+function get_status_class(status) {
+    const classes = {
+        NEW: "bg-yellow-100 text-yellow-800",
+        IN_PROGRESS: "bg-blue-100 text-blue-800",
+        ON_REVIEW: "bg-purple-100 text-purple-800",
+        REJECTED: "bg-red-100 text-red-800",
+        REVISION: "bg-orange-100 text-orange-800",
+        CANCELLED: "bg-gray-100 text-gray-800",
+        PAUSED: "bg-gray-200 text-gray-700",
+        DONE: "bg-green-100 text-green-800"
+    };
+    return classes[status] || "bg-gray-100";
+}
+
+document.addEventListener('DOMContentLoaded', loadHistory);
+</script>
+
+<!-- Стили для спиннера (если нет в base) -->
+<style>
+.loading-spinner {
+    display: inline-block;
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid rgba(59,130,246,0.3);
+    border-radius: 50%;
+    border-top-color: #3b82f6;
+    animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: #1f2937;
+    color: white;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+    z-index: 1000;
+    animation: slideUp 0.3s ease;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+{% endblock %}

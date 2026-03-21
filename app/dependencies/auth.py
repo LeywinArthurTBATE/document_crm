@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Cookie, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -12,9 +12,23 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    token = None
+
+    # 1. Header (API)
+    auth = request.headers.get("Authorization")
+    if auth and auth.startswith("Bearer "):
+        token = auth.split(" ")[1]
+
+    # 2. Cookie (SSR)
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+
     try:
         payload = decode_token(token)
     except Exception:
@@ -22,17 +36,16 @@ async def get_current_user(
 
     user_id = payload.get("sub")
 
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
     result = await db.execute(
         select(User)
         .options(selectinload(User.role))
         .where(User.id == user_id)
     )
-    user = result.scalar_one_or_none()
 
+    user = result.scalar_one_or_none()
+    if not user.is_active:
+        raise HTTPException(403, "User is deactivated")
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(401, "User not found")
 
     return user

@@ -45,6 +45,7 @@ class DocumentListResponse(BaseModel):
     executor_name: str | None  # ← новое поле
     file_name: str | None
     is_overdue: bool
+    description: str | None
     @field_validator("status", mode="before")
     def convert_status(cls, v):
         return v.value if hasattr(v, "value") else v

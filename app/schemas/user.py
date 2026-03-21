@@ -27,3 +27,9 @@ class UserResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    role_id: Optional[UUID] = None

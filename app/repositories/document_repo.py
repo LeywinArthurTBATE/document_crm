@@ -82,7 +82,8 @@ class DocumentRepository:
                 "executor_id": doc.executor_id,
                 "executor_name": executor.full_name if executor else None,
                 "is_overdue": doc.is_overdue,
-                "file_name": doc.file_name
+                "file_name": doc.file_name,
+                "description": doc.description,
             })
 
         return data

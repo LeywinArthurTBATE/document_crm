@@ -36,33 +36,37 @@
 </div>
 
 <script>
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-        const errorDiv = document.getElementById('errorMsg');
-        errorDiv.classList.add('hidden');
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
 
-        try {
-            const response = await fetch('/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
+    const errorDiv = document.getElementById('errorMsg');
+    errorDiv.classList.add('hidden');
 
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Ошибка входа');
-            }
+    try {
+        const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+            credentials: 'include',
+        });
 
-            const data = await response.json();
-            setToken(data.access_token);
-            window.location.href = '/';
-        } catch (err) {
-            errorDiv.textContent = err.message;
-            errorDiv.classList.remove('hidden');
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Ошибка входа');
         }
-    });
+
+        // ❗ НИЧЕГО НЕ СОХРАНЯЕМ
+        // cookie уже поставился сервером
+
+        window.location.href = '/';
+
+    } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.classList.remove('hidden');
+    }
+});
 </script>
 {% endblock %}

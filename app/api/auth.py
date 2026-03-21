@@ -10,7 +10,9 @@ from app.models.user import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
+from fastapi.responses import JSONResponse
+
+@router.post("/login")
 async def login(
     data: LoginRequest,
     db: AsyncSession = Depends(get_db),
@@ -21,9 +23,26 @@ async def login(
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
+    # ❗ КЛЮЧЕВАЯ ПРОВЕРКА
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is deactivated")
+
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
     token = create_access_token(str(user.id))
 
-    return TokenResponse(access_token=token)
+    response = JSONResponse({
+        "access_token": token
+    })
+
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=60 * 60 * 24
+    )
+
+    return response

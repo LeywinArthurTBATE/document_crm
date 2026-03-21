@@ -116,9 +116,10 @@ async def get_document(
 
     # 🔒 проверка доступа
     await require_permission(db, user, "document.read")
-    if user.id not in [doc.author_id, doc.executor_id]:
-        raise HTTPException(403, "Access denied")
+    is_owner = user.id in [doc.author_id, doc.executor_id]
 
+    if not is_owner:
+        await require_permission(db, user, "document.edit_any")
     return doc
 
 
@@ -150,20 +151,18 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    await require_permission(db, user, "document.delete")
 
     doc = await DocumentRepository.get_by_id(db, doc_id)
 
     if not doc:
         raise HTTPException(404, "Document not found")
 
-    # ownership OR admin permission
     is_owner = doc.author_id == user.id
 
-    if not is_owner:
-        # если не владелец — нужен отдельный permission
+    if is_owner:
+        await require_permission(db, user, "document.delete")
+    else:
         await require_permission(db, user, "document.delete_any")
-
     doc.is_deleted = True
     await db.commit()
 
@@ -211,7 +210,7 @@ async def get_document_history(
     doc = await DocumentRepository.get_by_id(db, doc_id)
 
     if not doc:
-        raise HTTPException(404, "Document not found")
+        raise HTTPException(404)
 
     await require_permission(db, user, "document.read")
 
@@ -221,4 +220,44 @@ async def get_document_history(
         .order_by(DocumentHistory.created_at.desc())
     )
 
-    return result.scalars().all()
+    history = result.scalars().all()
+
+    # 🔥 собираем список user_id
+    user_ids = set()
+    for h in history:
+        if h.field == "executor_id":
+            if h.old_value:
+                user_ids.add(h.old_value)
+            if h.new_value:
+                user_ids.add(h.new_value)
+
+    users_map = {}
+
+    if user_ids:
+        from app.models.user import User
+        res = await db.execute(
+            select(User).where(User.id.in_(user_ids))
+        )
+        users = res.scalars().all()
+        users_map = {str(u.id): u.full_name for u in users}
+
+    # 🔥 преобразуем
+    response = []
+
+    for h in history:
+        old_val = h.old_value
+        new_val = h.new_value
+
+        if h.field == "executor_id":
+            old_val = users_map.get(old_val, "—")
+            new_val = users_map.get(new_val, "—")
+
+        response.append({
+            "field": h.field,
+            "old_value": old_val,
+            "new_value": new_val,
+            "created_at": h.created_at,
+            "changed_by": str(h.changed_by),
+        })
+
+    return response
