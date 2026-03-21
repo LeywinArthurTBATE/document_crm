@@ -153,6 +153,12 @@
             <option value="PAUSED">Пауза</option>
             <option value="DONE">Выполнено</option>
         </select>
+        <select id="is_overdue" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none">
+            <option value="">Все</option>
+            <option value="true">Просроченные</option>
+            <option value="false">Не просроченные</option>
+        </select>
+        <select id="executor_filter" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"></select>
         <input type="date" id="deadline_from" placeholder="Срок с" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200">
         <input type="date" id="deadline_to" placeholder="Срок по" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200">
         <button onclick="loadDocuments()" class="bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-lg transition-all flex items-center justify-center gap-1">
@@ -242,7 +248,6 @@
 <script>
     let currentUser = null;
     let currentView = 'table'; // 'table' или 'card'
-
     // --- Вспомогательные функции ---
     function showToast(message, type = 'success') {
         const toast = document.createElement('div');
@@ -274,29 +279,49 @@
     };
     function getStatusText(status) { return STATUS_MAP[status]?.text || status; }
     function getStatusClass(status) { return STATUS_MAP[status]?.class || 'bg-gray-100'; }
+    let usersCache = [];
 
-    // --- Загрузка пользователей ---
-    async function loadUsers() {
-        try {
-            const meRes = await fetch('/users/me', {
-                credentials: 'include'
-            });
-            if (meRes.ok) currentUser = await meRes.json();
+    async function fetchUsers() {
+        if (usersCache.length) return usersCache;
 
-            const usersRes = await fetch('/users', {
-                credentials: 'include'
-            });
-            if (!usersRes.ok) return;
-            const users = await usersRes.json();
-            const select = document.getElementById('executor_id');
-            select.innerHTML = '<option value="">Я</option>';
-            users.forEach(u => {
-                const option = document.createElement('option');
-                option.value = u.id;
-                option.textContent = u.full_name;
-                select.appendChild(option);
-            });
-        } catch (err) { console.error(err); }
+        const res = await fetch('/users', {
+            credentials: 'include'
+        });
+
+        if (!res.ok) {
+            console.error('users error', res.status);
+            throw new Error('users load failed');
+        }
+
+        usersCache = await res.json();
+        return usersCache;
+    }
+    async function renderUsersToModal() {
+        const users = await fetchUsers();
+
+        const select = document.getElementById('executor_id');
+        select.innerHTML = '<option value="">Я</option>';
+
+        users.forEach(u => {
+            const option = document.createElement('option');
+            option.value = u.id;
+            option.textContent = u.full_name;
+            select.appendChild(option);
+        });
+    }
+
+    async function renderUsersToFilter() {
+        const users = await fetchUsers();
+
+        const filter = document.getElementById('executor_filter');
+        filter.innerHTML = '<option value="">Все</option>';
+
+        users.forEach(u => {
+            const option = document.createElement('option');
+            option.value = u.id;
+            option.textContent = u.full_name;
+            filter.appendChild(option);
+        });
     }
 
     // --- Рендер таблицы ---
@@ -341,8 +366,8 @@
                 <p class="text-gray-600 text-sm mb-4 line-clamp-2">${escapeHtml(doc.description) || 'Нет описания'}</p>
                 <div class="border-t border-gray-100 pt-3 text-sm space-y-1">
 
-                    <div class="flex items-center gap-2 text-gray-600"><i class="fas fa-user w-4"></i> <span>${escapeHtml(doc.executor_name || 'Я')}</span></div>
-                    <div class="flex items-center gap-2 text-gray-600"><i class="fas fa-user w-4"></i> <span>${escapeHtml(doc.author_name || 'Я')}</span></div>
+                    <div class="flex items-center gap-2 text-gray-600"><i class="fas fa-user w-4"></i> <span>Исполнитель: ${escapeHtml(doc.executor_name || 'Я')}</span></div>
+                    <div class="flex items-center gap-2 text-gray-600"><i class="fas fa-user w-4"></i> <span>Автор: ${escapeHtml(doc.author_name || 'Я')}</span></div>
                     <div class="flex items-center gap-2 text-gray-600"><i class="fas fa-calendar-alt w-4"></i> <span>Срок: ${doc.deadline || '—'}</span> ${doc.is_overdue ? '<span class="text-red-500 text-xs ml-1">(просрочен)</span>' : ''}</div>
                     ${doc.file_name ? `<div class="flex items-center gap-2"><i class="fas fa-paperclip w-4"></i> <button onclick="downloadDocument('${doc.id}', '${escapeHtml(doc.file_name)}')" class="text-blue-500 hover:underline">${escapeHtml(doc.file_name)}</button></div>` : ''}
                 </div>
@@ -354,17 +379,26 @@
         `).join('');
     }
 
+    function getValue(id) {
+        const el = document.getElementById(id);
+        return el ? el.value : null;
+    }
+
     // --- Загрузка документов с фильтрами ---
     async function loadDocuments() {
         const params = new URLSearchParams();
-        const search = document.getElementById('search').value;
-        const status = document.getElementById('status').value;
-        const deadline_from = document.getElementById('deadline_from').value;
-        const deadline_to = document.getElementById('deadline_to').value;
+        const search = getValue('search');
+        const status = getValue('status');
+        const deadline_from = getValue('deadline_from');
+        const deadline_to = getValue('deadline_to');
+        const executor = getValue('executor_filter');
+        const overdue = getValue('is_overdue');
         if (search) params.append('search', search);
         if (status) params.append('status', status);
         if (deadline_from) params.append('deadline_from', deadline_from);
         if (deadline_to) params.append('deadline_to', deadline_to);
+        if (executor) params.append('executor_id', executor);
+        if (overdue) params.append('is_overdue', overdue);
         params.append('limit', '100');
 
         // Показываем лоадер
@@ -410,12 +444,15 @@
     let currentDocId = null;
     function openCreateModal() {
         currentDocId = null;
+
         document.getElementById('modalTitle').innerText = 'Создать документ';
         document.getElementById('documentForm').reset();
+
         document.getElementById('fileInputWrapper').classList.remove('hidden');
         document.getElementById('statusWrapper').classList.add('hidden');
         document.getElementById('modal').classList.remove('hidden');
-        loadUsers();
+
+        renderUsersToModal(); // ✅ вместо loadUsers
     }
     async function editDocument(docId) {
         try {
@@ -506,7 +543,18 @@
             }
         }
     });
+    async function loadCurrentUser() {
+        const res = await fetch('/users/me', {
+            credentials: 'include'
+        });
 
+        if (!res.ok) {
+            console.error('failed to load current user');
+            return null;
+        }
+
+        return await res.json();
+    }
     // --- Удаление ---
     async function deleteDocument(docId) {
         if (!confirm('Удалить документ?')) return;
@@ -547,14 +595,24 @@
     }
 
     // --- Инициализация и обработчики переключения ---
-    document.addEventListener('DOMContentLoaded', () => {
-        // Восстанавливаем сохранённый вид
+    document.addEventListener('DOMContentLoaded', async () => {
         const savedView = localStorage.getItem('documentsView');
         if (savedView === 'card') setView('card');
         else setView('table');
 
         document.getElementById('tableViewBtn').addEventListener('click', () => setView('table'));
         document.getElementById('cardViewBtn').addEventListener('click', () => setView('card'));
+
+        currentUser = await loadCurrentUser();
+
+        // 🔐 проверка роли
+        if (['ADMIN', 'MANAGER'].includes(currentUser?.role?.code)) {
+            await renderUsersToFilter();
+        } else {
+            // ❌ скрываем фильтр
+            const filterEl = document.getElementById('executor_filter');
+            filterEl?.classList.add('hidden');
+        }
 
         loadDocuments();
     });
