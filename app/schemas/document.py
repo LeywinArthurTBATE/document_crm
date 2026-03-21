@@ -45,6 +45,8 @@ class DocumentListResponse(BaseModel):
     executor_name: str | None  # ← новое поле
     file_name: str | None
     is_overdue: bool
+    author_id: UUID
+    author_name: str  # 👈 добавить
     description: str | None
     @field_validator("status", mode="before")
     def convert_status(cls, v):

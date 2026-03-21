@@ -1,8 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from typing import Optional
 from uuid import UUID
 from datetime import date
+
+from sqlalchemy.orm import aliased
 
 from app.models import User
 from app.models.document import Document, DocumentStatus
@@ -30,24 +32,34 @@ class DocumentRepository:
         deadline_from: Optional[date] = None,
         deadline_to: Optional[date] = None,
         is_overdue: Optional[bool] = None,
-        limit: int = 50, offset: int = 0
+        limit: int = 50,
+        offset: int = 0
     ):
+        # 🔥 алиасы (чтобы дважды джоинить User)
+        executor_alias = aliased(User)
+        author_alias = aliased(User)
+
         query = (
-            select(Document, User)
-            .outerjoin(User, Document.executor_id == User.id).where(Document.is_deleted == False)
+            select(Document, executor_alias, author_alias)
+            .outerjoin(executor_alias, Document.executor_id == executor_alias.id)
+            .join(author_alias, Document.author_id == author_alias.id)
+            .where(Document.is_deleted.is_(False))
         )
 
-        # 🔒 ограничение доступа (если не админ)
+        # 🔒 доступ
         if user.role.code != "ADMIN":
             query = query.where(
-                (Document.author_id == user.id) |
-                (Document.executor_id == user.id)
+                or_(
+                    Document.author_id == user.id,
+                    Document.executor_id == user.id
+                )
             )
 
         filters = []
 
         if status:
             filters.append(Document.status == DocumentStatus(status))
+
         if executor_id:
             filters.append(Document.executor_id == executor_id)
 
@@ -67,20 +79,27 @@ class DocumentRepository:
             query = query.where(and_(*filters))
 
         query = query.order_by(Document.created_at.desc())
-
         query = query.limit(limit).offset(offset)
+
         result = await db.execute(query)
         rows = result.all()
 
         data = []
-        for doc, executor in rows:
+
+        for doc, executor, author in rows:
             data.append({
                 "id": doc.id,
                 "title": doc.title,
                 "status": doc.status.value,
                 "deadline": doc.deadline,
+
+                # 👇 ключевые поля
+                "author_id": doc.author_id,
+                "author_name": author.full_name,
+
                 "executor_id": doc.executor_id,
                 "executor_name": executor.full_name if executor else None,
+
                 "is_overdue": doc.is_overdue,
                 "file_name": doc.file_name,
                 "description": doc.description,
