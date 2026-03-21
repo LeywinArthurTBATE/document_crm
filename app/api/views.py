@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.core.templates import templates  # ✅ теперь правильно
 from app.dependencies.auth import get_current_user
-from app.models import Document
+from app.models import Document, User
 from app.repositories.document_repo import DocumentRepository
 
 router = APIRouter()
@@ -20,13 +20,14 @@ async def login_page(request: Request):
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
 @router.get("/", response_class=HTMLResponse)
-async def index_page(request: Request):
+async def index_page(request: Request, user=Depends(get_current_user)):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @router.get("/admin/users", response_class=HTMLResponse)
 async def users_page(
-    request: Request
+    request: Request,
+    user=Depends(get_current_user)
 ):
     return templates.TemplateResponse("users.html", {"request": request})
 
