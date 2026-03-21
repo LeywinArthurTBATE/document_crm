@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Вход в систему{% endblock %}
+
+{% block content %}
+<div class="flex justify-center items-center min-h-[70vh]">
+    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-md border border-blue-100">
+        <div class="text-center mb-6">
+            <i class="fas fa-file-alt text-blue-500 text-4xl"></i>
+            <h2 class="text-2xl font-bold text-gray-800 mt-2">Вход в систему</h2>
+            <p class="text-gray-500">Введите свои учётные данные</p>
+        </div>
+
+        <form id="loginForm">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-semibold mb-2" for="email">
+                    Email
+                </label>
+                <input type="email" id="email" name="email" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <div class="mb-6">
+                <label class="block text-gray-700 text-sm font-semibold mb-2" for="password">
+                    Пароль
+                </label>
+                <input type="password" id="password" name="password" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <button type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-fast flex justify-center items-center">
+                <i class="fas fa-sign-in-alt mr-2"></i> Войти
+            </button>
+        </form>
+        <div id="errorMsg" class="mt-4 text-red-500 text-center text-sm hidden"></div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        const errorDiv = document.getElementById('errorMsg');
+        errorDiv.classList.add('hidden');
+
+        try {
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Ошибка входа');
+            }
+
+            const data = await response.json();
+            setToken(data.access_token);
+            window.location.href = '/';
+        } catch (err) {
+            errorDiv.textContent = err.message;
+            errorDiv.classList.remove('hidden');
+        }
+    });
+</script>
+{% endblock %}
