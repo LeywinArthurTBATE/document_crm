@@ -49,3 +49,14 @@ async def get_current_user(
         raise HTTPException(401, "User not found")
 
     return user
+
+from fastapi import Request
+
+async def get_optional_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_current_user(request, db)
+    except:
+        return None

@@ -8,9 +8,10 @@ from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
 from app.core.templates import templates  # ✅ теперь правильно
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_user, get_optional_user
 from app.models import Document, User
 from app.repositories.document_repo import DocumentRepository
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -20,15 +21,20 @@ async def login_page(request: Request):
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
 @router.get("/", response_class=HTMLResponse)
-async def index_page(request: Request, user=Depends(get_current_user)):
+async def index_page(request: Request, user=Depends(get_optional_user)):
+    if not user:
+        return RedirectResponse("/login")
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @router.get("/admin/users", response_class=HTMLResponse)
 async def users_page(
     request: Request,
-    user=Depends(get_current_user)
+    user=Depends(get_optional_user)
 ):
+    if not user:
+        return RedirectResponse("/login")
+
     return templates.TemplateResponse("users.html", {"request": request})
 
 def get_status_class(status):
@@ -63,8 +69,12 @@ async def document_page(
     request: Request,
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_optional_user),
 ):
+    if not user:
+        return RedirectResponse("/login")
+    if user.role.code != "ADMIN":
+        return RedirectResponse("/")  # или 403
     result = await db.execute(
         select(Document)
         .options(
