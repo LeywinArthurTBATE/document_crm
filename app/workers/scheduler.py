@@ -16,7 +16,7 @@ def start_scheduler():
     # запускаем каждые 30 минут
     scheduler.add_job(
         run_overdue_worker,
-        trigger=IntervalTrigger(minutes=1),
+        trigger=IntervalTrigger(seconds=10),
         id="overdue_worker",
         replace_existing=True,
         next_run_time=datetime.now()   # ← КЛЮЧЕВОЕ
