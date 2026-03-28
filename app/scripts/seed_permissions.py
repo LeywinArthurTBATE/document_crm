@@ -43,6 +43,7 @@ ROLES = {
         "document.create",
         "document.edit",
         "document.delete",
+        "document.change_status",
     ],
 
     "MANAGER": [
