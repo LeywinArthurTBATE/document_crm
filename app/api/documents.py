@@ -25,7 +25,11 @@ from app.utils.file_storage import save_file, save_file_stream
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-
+async def check_owner_or_permission(db, user, doc, perm_own, perm_any):
+    if user.id in [doc.author_id, doc.executor_id]:
+        await require_permission(db, user, perm_own)
+    else:
+        await require_permission(db, user, perm_any)
 # -------------------- LIST --------------------
 
 @router.get("", response_model=List[DocumentListResponse])
@@ -114,12 +118,11 @@ async def get_document(
     if not doc:
         raise HTTPException(404, "Document not found")
 
-    # 🔒 проверка доступа
-    await require_permission(db, user, "document.read")
-    is_owner = user.id in [doc.author_id, doc.executor_id]
+    if user.id in [doc.author_id, doc.executor_id]:
+        await require_permission(db, user, "document.read")
+    else:
+        await require_permission(db, user, "document.read_any")
 
-    if not is_owner:
-        await require_permission(db, user, "document.edit_any")
     return doc
 
 
@@ -131,18 +134,21 @@ async def download_document(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    await require_permission(db, user, "document.read")
-
     doc = await DocumentRepository.get_by_id(db, doc_id)
 
     if not doc:
         raise HTTPException(404, "Document not found")
 
-    if user.id not in [doc.author_id, doc.executor_id]:
-        raise HTTPException(403, "Access denied")
+    await check_owner_or_permission(
+        db, user, doc,
+        "document.delete",
+        "document.delete_any"
+    )
 
-    return FileResponse(doc.file_path, filename=doc.file_name)
+    doc.is_deleted = True
+    await db.commit()
 
+    return {"status": "deleted"}
 # -------------------- DELETE --------------------
 
 @router.delete("/{doc_id}")
@@ -183,19 +189,28 @@ async def update_document(
     if not doc:
         raise HTTPException(404, "Document not found")
 
-    # ownership
-    if user.id not in [doc.author_id, doc.executor_id]:
-        raise HTTPException(403, "Access denied")
+    # --- базовый доступ ---
+    await check_owner_or_permission(
+        db, user, doc,
+        "document.edit",
+        "document.edit_any"
+    )
 
-    # granular permissions
+    # --- granular ---
     if data.deadline:
         await require_permission(db, user, "document.edit_deadline")
 
     if data.executor_id:
-        await require_permission(db, user, "document.assign")
+        if user.id in [doc.author_id, doc.executor_id]:
+            await require_permission(db, user, "document.assign")
+        else:
+            await require_permission(db, user, "document.assign_any")
 
     if data.status:
-        await require_permission(db, user, "document.change_status")
+        if user.id in [doc.author_id, doc.executor_id]:
+            await require_permission(db, user, "document.change_status")
+        else:
+            await require_permission(db, user, "document.change_status_any")
 
     updated = await DocumentService.update_document(db, doc, data, user)
 
@@ -212,7 +227,10 @@ async def get_document_history(
     if not doc:
         raise HTTPException(404)
 
-    await require_permission(db, user, "document.read")
+    if user.id in [doc.author_id, doc.executor_id]:
+        await require_permission(db, user, "document.read")
+    else:
+        await require_permission(db, user, "document.read_any")
 
     result = await db.execute(
         select(DocumentHistory)
