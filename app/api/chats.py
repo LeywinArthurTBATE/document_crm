@@ -238,11 +238,20 @@ async def websocket_endpoint(
 
                 await manager.send_to_user(str(uid), {
                     "type": "notification",
+                    "event": "message",
                     "data": {
-                        "type": "message",
                         "document_id": str(doc_id),
-                        "author_name": user.full_name,
-                        "text": text[:50]
+                        "document_title": doc.title,
+                        "url": f"/documents/{doc_id}/view",
+
+                        "actor_id": str(user.id),
+                        "actor_name": user.full_name,
+
+                        "text": text
+                    },
+                    "meta": {
+                        "created_at": msg.created_at.isoformat(),
+                        "id": str(msg.id)
                     }
                 })
 

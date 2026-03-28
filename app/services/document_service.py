@@ -71,11 +71,21 @@ class DocumentService:
                     db.add(notif)
                     await manager.send_to_user(str(uid), {
                         "type": "notification",
+                        "event": "assign",
                         "data": {
-                            "type": "assign",
                             "document_id": str(doc.id),
-                            "new_executor": doc.executor.full_name if doc.executor else None,
-                            "changed_by": user.full_name
+                            "document_title": doc.title,
+                            "url": f"/documents/{doc.id}/view",
+
+                            "actor_id": str(user.id),
+                            "actor_name": user.full_name,
+
+                            "extra": {
+                                "new_executor": doc.executor.full_name if doc.executor else None
+                            }
+                        },
+                        "meta": {
+                            "created_at": datetime.utcnow().isoformat()
                         }
                     })
 
@@ -92,11 +102,21 @@ class DocumentService:
                     db.add(notif)
                     await manager.send_to_user(str(uid), {
                         "type": "notification",
+                        "event": "status_change",
                         "data": {
-                            "type": "status_change",
                             "document_id": str(doc.id),
-                            "new_status": doc.status.value,
-                            "changed_by": user.full_name
+                            "document_title": doc.title,
+                            "url": f"/documents/{doc.id}/view",
+
+                            "actor_id": str(user.id),
+                            "actor_name": user.full_name,
+
+                            "extra": {
+                                "new_executor": doc.executor.full_name if doc.executor else None
+                            }
+                        },
+                        "meta": {
+                            "created_at": datetime.utcnow().isoformat()
                         }
                     })
 
@@ -113,14 +133,23 @@ class DocumentService:
                     db.add(notif)
                     await manager.send_to_user(str(uid), {
                         "type": "notification",
+                        "event": "deadline_change",
                         "data": {
-                            "type": "deadline_change",
                             "document_id": str(doc.id),
-                            "new_deadline": doc.deadline.isoformat(),
-                            "changed_by": user.full_name
+                            "document_title": doc.title,
+                            "url": f"/documents/{doc.id}/view",
+
+                            "actor_id": str(user.id),
+                            "actor_name": user.full_name,
+
+                            "extra": {
+                                "new_executor": doc.executor.full_name if doc.executor else None
+                            }
+                        },
+                        "meta": {
+                            "created_at": datetime.utcnow().isoformat()
                         }
                     })
-
         await db.commit()
         return doc
 
@@ -165,7 +194,7 @@ class DocumentService:
                 "data": {
                     "type": "new_document",
                     "document_id": str(doc.id),
-                    "document_titletit": doc.title,
+                    "document_title": doc.title,
                     "author": doc.author.full_name
                 }
             })

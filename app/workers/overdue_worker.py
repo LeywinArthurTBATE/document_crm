@@ -61,7 +61,10 @@ async def process_overdue_documents(db: AsyncSession):
                         "type": "overdue",
                         "document_id": str(doc.id),
                         "document_title": doc.title,
-                        "deadline": doc.deadline.isoformat()
+                        "deadline": doc.deadline.isoformat(),
+                        "url": f"/documents/{str(doc.id)}/view",
+                        "event": "overdue",
+                        "actor_name": "system",
                     }
                 })
 

@@ -134,12 +134,23 @@
         let wsNotifications = null;
         let currentUser = null;
 
-        function showToast(message, type = 'success') {
+        function showToast(message, url = null) {
             const toast = document.createElement('div');
-            toast.className = 'toast';
-            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>${message}`;
+            toast.className = 'toast cursor-pointer';
+
+            toast.innerHTML = `
+                <div class="flex items-start gap-2">
+                    <i class="fas fa-bell mt-1"></i>
+                    <div>${message}</div>
+                </div>
+            `;
+
+            if (url) {
+                toast.onclick = () => window.location.href = url;
+            }
+
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            setTimeout(() => toast.remove(), 4000);
         }
 
         function escapeHtml(str) {
@@ -168,45 +179,99 @@
 
         // Подключение к WebSocket уведомлений
         function connectNotifications() {
-            const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications`;
+
+            const token = getCookie("access_token");
+            if (!token) {
+                console.warn("WS: нет токена");
+                return;
+            }
+            if (wsNotifications) {
+                wsNotifications.close();
+            }
+            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications?token=${token}`;
             wsNotifications = new WebSocket(wsUrl);
-            wsNotifications.onopen = () => console.log('Notifications WebSocket connected');
+            wsNotifications.onopen = () => {
+                console.log('WS connected');
+            };
             wsNotifications.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'notification') {
-                    const notif = data.data;
-                    let message = '';
-                    if (notif.type === 'message') {
-                        message = `Новое сообщение в документе "${notif.document_title || 'документе'}" от ${notif.author_name}`;
-                    } else if (notif.type === 'status_change') {
-                        message = `Документ "${notif.document_title || ''}" изменил статус на ${notif.new_status}`;
-                    } else if (notif.type === 'assign') {
-                        message = `Вы назначены исполнителем документа "${notif.document_title || ''}"`;
-                    } else if (notif.type === 'deadline_change') {
-                        message = `Срок документа "${notif.document_title || ''}" изменён на ${notif.new_deadline}`;
-                    } else if (notif.type === 'overdue') {
-                        message = `Документ "${notif.document_title || ''}" просрочен!`;
-                    } else if (notif.type === 'new_document') {
-                        message = `Новый документ "${notif.document_title || ''}" от ${notif.author}`;
-                    } else {
-                        message = `Уведомление: ${JSON.stringify(notif)}`;
-                    }
-                    showToast(message, 'info');
-                    loadUnreadCount();  // обновляем счетчик
-                    // диспатчим событие для страницы уведомлений
-                    window.dispatchEvent(new CustomEvent('notificationReceived', { detail: data }));
+
+                const msg = JSON.parse(event.data);
+
+                if (msg.type !== 'notification') return;
+
+                const { event: evt, data } = msg;
+
+                let message = '';
+                let url = data.url || null;
+
+                if (evt === 'message') {
+                    message = `
+                        <b>${escapeHtml(data.actor_name)}</b><br>
+                        ${escapeHtml(data.text || '')}<br>
+                        <span class="text-xs opacity-70">${escapeHtml(data.document_title)}</span>
+                    `;
                 }
+
+                else if (evt === 'assign') {
+                    message = `
+                        Назначен исполнитель<br>
+                        <b>${escapeHtml(data.document_title)}</b>
+                    `;
+                }
+
+                else if (evt === 'status_change') {
+                    message = `
+                        Статус изменен<br>
+                        <b>${escapeHtml(data.document_title)}</b>
+                    `;
+                }
+
+                else if (evt === 'deadline_change') {
+                    message = `
+                        Новый срок<br>
+                        <b>${escapeHtml(data.document_title)}</b><br>
+                        ${escapeHtml(data.extra?.new_deadline ?? '')}
+                    `;
+                }
+
+                else if (evt === 'overdue') {
+                    message = `
+                        ⚠ Просрочен<br>
+                        <b>${escapeHtml(data.document_title)}</b>
+                    `;
+                }
+
+                else if (evt === 'new_document') {
+                    message = `
+                        Новый документ<br>
+                        <b>${escapeHtml(data.document_title)}</b>
+                    `;
+                }
+
+                else {
+                    message = `Событие: ${evt}`;
+                }
+
+                showToast(message, url);
+                loadUnreadCount();
+
+                window.dispatchEvent(
+                    new CustomEvent('notificationReceived', { detail: msg })
+                );
             };
             wsNotifications.onclose = () => {
-                console.log('Notifications WebSocket closed, reconnecting in 5s');
+                console.log('WS closed → reconnect');
                 setTimeout(connectNotifications, 5000);
+            };
+            wsNotifications.onerror = (e) => {
+                console.error('WS error', e);
             };
         }
 
         function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
+            return document.cookie.split('; ')
+                .find(row => row.startsWith(name + '='))
+                ?.split('=')[1];
         }
 
         async function loadCurrentUser() {

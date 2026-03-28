@@ -85,7 +85,7 @@ async def notifications_websocket(
 
 
     # Подключаем к менеджеру по user_id
-    await manager.connect(websocket, f"notifications_{user_id}", str(user.id))
+    await manager.connect(websocket, "notifications", str(user.id))
     try:
         while True:
             # Просто держим соединение открытым
