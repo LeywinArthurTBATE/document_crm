@@ -137,18 +137,14 @@ async def download_document(
     doc = await DocumentRepository.get_by_id(db, doc_id)
 
     if not doc:
-        raise HTTPException(404, "Document not found")
+        raise HTTPException(404)
 
-    await check_owner_or_permission(
-        db, user, doc,
-        "document.delete",
-        "document.delete_any"
-    )
+    if user.id in [doc.author_id, doc.executor_id]:
+        await require_permission(db, user, "document.read")
+    else:
+        await require_permission(db, user, "document.read_any")
 
-    doc.is_deleted = True
-    await db.commit()
-
-    return {"status": "deleted"}
+    return FileResponse(doc.file_path, filename=doc.file_name)
 # -------------------- DELETE --------------------
 
 @router.delete("/{doc_id}")

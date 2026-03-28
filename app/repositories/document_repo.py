@@ -41,7 +41,7 @@ class DocumentRepository:
 
         query = (
             select(Document, executor_alias, author_alias)
-            .outerjoin(executor_alias, Document.executor_id == executor_alias.id)
+            .outerjoin(author_alias, Document.author_id == author_alias.id)
             .join(author_alias, Document.author_id == author_alias.id)
             .where(Document.is_deleted.is_(False))
         )
