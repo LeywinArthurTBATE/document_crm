@@ -60,7 +60,7 @@ async def process_overdue_documents(db: AsyncSession):
                     "data": {
                         "type": "overdue",
                         "document_id": str(doc.id),
-                        "title": doc.title,
+                        "document_title": doc.title,
                         "deadline": doc.deadline.isoformat()
                     }
                 })

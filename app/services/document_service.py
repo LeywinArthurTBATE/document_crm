@@ -165,7 +165,7 @@ class DocumentService:
                 "data": {
                     "type": "new_document",
                     "document_id": str(doc.id),
-                    "title": doc.title,
+                    "document_titletit": doc.title,
                     "author": doc.author.full_name
                 }
             })
