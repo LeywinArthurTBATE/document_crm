@@ -246,7 +246,7 @@
 </div>
 
 <script>
-    let currentUser = null;
+    currentUser = await loadCurrentUser();
     let currentView = 'table'; // 'table' или 'card'
     // --- Вспомогательные функции ---
     function showToast(message, type = 'success') {
