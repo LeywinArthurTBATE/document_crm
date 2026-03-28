@@ -164,6 +164,12 @@ async def websocket_endpoint(
     token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
+    await websocket.accept()
+    token = websocket.cookies.get("access_token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+
     try:
         payload = decode_token(token)
         user_id = payload.get("sub")

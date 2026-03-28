@@ -394,9 +394,7 @@
 
     // --- WebSocket чата ---
     function connectChat() {
-        const token = getCookie('access_token');
-        if (!token) return;
-        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/chats/ws/${docId}?token=${token}`;
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/chats/ws/${docId}`;
         wsChat = new WebSocket(wsUrl);
         wsChat.onopen = () => console.log('Chat WebSocket connected');
         wsChat.onmessage = (event) => {

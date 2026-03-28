@@ -164,12 +164,8 @@
 
         // Подключение к WebSocket уведомлений
         function connectNotifications() {
-            const token = getCookie('access_token');
-            if (!token || wsNotifications && wsNotifications.readyState === WebSocket.OPEN) return;
-
-            const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications?token=${token}`;
+            const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications`;
             wsNotifications = new WebSocket(wsUrl);
-
             wsNotifications.onopen = () => console.log('Notifications WebSocket connected');
             wsNotifications.onmessage = (event) => {
                 const data = JSON.parse(event.data);
