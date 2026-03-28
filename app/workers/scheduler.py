@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.core.database import AsyncSessionLocal
@@ -14,8 +16,9 @@ def start_scheduler():
     # запускаем каждые 30 минут
     scheduler.add_job(
         run_overdue_worker,
-        trigger=IntervalTrigger(minutes=30),
+        trigger=IntervalTrigger(minutes=1),
         id="overdue_worker",
-        replace_existing=True
+        replace_existing=True,
+        next_run_time=datetime.now()   # ← КЛЮЧЕВОЕ
     )
     scheduler.start()
