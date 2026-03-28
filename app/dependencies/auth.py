@@ -43,10 +43,11 @@ async def get_current_user(
     )
 
     user = result.scalar_one_or_none()
-    if not user.is_active:
-        raise HTTPException(403, "User is deactivated")
     if not user:
         raise HTTPException(401, "User not found")
+
+    if not user.is_active:
+        raise HTTPException(403, "User is deactivated")
 
     return user
 
