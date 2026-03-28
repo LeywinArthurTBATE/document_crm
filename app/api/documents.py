@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
 from app.core.database import get_db
+from app.core.documents_access import get_doc_or_403
 from app.dependencies.auth import get_current_user
 from app.models import DocumentHistory, DocumentWatcher, User
 from app.repositories.permissions import require_permission
@@ -24,6 +25,7 @@ from app.repositories.document_repo import DocumentRepository
 from app.utils.file_storage import save_file, save_file_stream
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
 
 
 async def check_owner_or_permission(db, user, doc, perm_own, perm_any):
@@ -114,18 +116,14 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    doc = await DocumentRepository.get_by_id(db, doc_id)
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    if not doc:
-        raise HTTPException(404, "Document not found")
-
-    if user.id in [doc.author_id, doc.executor_id]:
-        await require_permission(db, user, "document.read")
-    else:
-        await require_permission(db, user, "document.read_any")
+    await require_permission(
+        db, user,
+        "document.read" if access == "owner" else "document.read_any"
+    )
 
     return doc
-
 
 # -------------------- DOWNLOAD --------------------
 
@@ -135,37 +133,29 @@ async def download_document(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    doc = await DocumentRepository.get_by_id(db, doc_id)
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    if not doc:
-        raise HTTPException(404)
-
-    if user.id in [doc.author_id, doc.executor_id]:
-        await require_permission(db, user, "document.read")
-    else:
-        await require_permission(db, user, "document.read_any")
+    await require_permission(
+        db, user,
+        "document.read" if access == "owner" else "document.read_any"
+    )
 
     return FileResponse(doc.file_path, filename=doc.file_name)
-# -------------------- DELETE --------------------
 
+# -------------------- DELETE --------------------
 @router.delete("/{doc_id}")
 async def delete_document(
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    doc = await DocumentRepository.get_by_id(db, doc_id)
+    await require_permission(
+        db, user,
+        "document.delete" if access == "owner" else "document.delete_any"
+    )
 
-    if not doc:
-        raise HTTPException(404, "Document not found")
-
-    is_owner = doc.author_id == user.id
-
-    if is_owner:
-        await require_permission(db, user, "document.delete")
-    else:
-        await require_permission(db, user, "document.delete_any")
     doc.is_deleted = True
     await db.commit()
 
@@ -181,37 +171,31 @@ async def update_document(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    doc = await DocumentRepository.get_by_id(db, doc_id)
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    if not doc:
-        raise HTTPException(404, "Document not found")
-
-    # --- базовый доступ ---
-    await check_owner_or_permission(
-        db, user, doc,
-        "document.edit",
-        "document.edit_any"
+    # базовое право
+    await require_permission(
+        db, user,
+        "document.edit" if access == "owner" else "document.edit_any"
     )
 
-    # --- granular ---
+    # granular
     if data.deadline:
         await require_permission(db, user, "document.edit_deadline")
 
     if data.executor_id:
-        if user.id in [doc.author_id, doc.executor_id]:
-            await require_permission(db, user, "document.assign")
-        else:
-            await require_permission(db, user, "document.assign_any")
+        await require_permission(
+            db, user,
+            "document.assign" if access == "owner" else "document.assign_any"
+        )
 
     if data.status:
-        if user.id in [doc.author_id, doc.executor_id]:
-            await require_permission(db, user, "document.change_status")
-        else:
-            await require_permission(db, user, "document.change_status_any")
+        await require_permission(
+            db, user,
+            "document.change_status" if access == "owner" else "document.change_status_any"
+        )
 
-    updated = await DocumentService.update_document(db, doc, data, user)
-
-    return updated
+    return await DocumentService.update_document(db, doc, data, user)
 
 @router.get("/{doc_id}/history")
 async def get_document_history(
@@ -219,15 +203,12 @@ async def get_document_history(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    doc = await DocumentRepository.get_by_id(db, doc_id)
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    if not doc:
-        raise HTTPException(404)
-
-    if user.id in [doc.author_id, doc.executor_id]:
-        await require_permission(db, user, "document.read")
-    else:
-        await require_permission(db, user, "document.read_any")
+    await require_permission(
+        db, user,
+        "document.read" if access == "owner" else "document.read_any"
+    )
 
     result = await db.execute(
         select(DocumentHistory)
@@ -237,46 +218,29 @@ async def get_document_history(
 
     history = result.scalars().all()
 
-    # 🔥 собираем список user_id
-    user_ids = set()
-    for h in history:
-        if h.field == "executor_id":
-            if h.old_value:
-                user_ids.add(h.old_value)
-            if h.new_value:
-                user_ids.add(h.new_value)
+    # сбор user_id
+    user_ids = {
+        v for h in history for v in [h.old_value, h.new_value]
+        if h.field == "executor_id" and v
+    }
 
     users_map = {}
 
     if user_ids:
-        from app.models.user import User
-        res = await db.execute(
-            select(User).where(User.id.in_(user_ids))
-        )
+        res = await db.execute(select(User).where(User.id.in_(user_ids)))
         users = res.scalars().all()
         users_map = {str(u.id): u.full_name for u in users}
 
-    # 🔥 преобразуем
-    response = []
-
-    for h in history:
-        old_val = h.old_value
-        new_val = h.new_value
-
-        if h.field == "executor_id":
-            old_val = users_map.get(old_val, "—")
-            new_val = users_map.get(new_val, "—")
-
-        response.append({
+    return [
+        {
             "field": h.field,
-            "old_value": old_val,
-            "new_value": new_val,
+            "old_value": users_map.get(h.old_value, "—") if h.field == "executor_id" else h.old_value,
+            "new_value": users_map.get(h.new_value, "—") if h.field == "executor_id" else h.new_value,
             "created_at": h.created_at,
             "changed_by": str(h.changed_by),
-        })
-
-    return response
-
+        }
+        for h in history
+    ]
 
 # app/api/documents.py (добавить в конец файла)
 
@@ -287,22 +251,20 @@ async def add_watcher(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Добавить наблюдателя к документу. Доступно автору, исполнителю и админу."""
-    doc = await DocumentRepository.get_by_id(db, doc_id)
-    if not doc:
-        raise HTTPException(404, "Document not found")
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    # проверка прав: только автор, исполнитель или админ
-    if user.id not in [doc.author_id, doc.executor_id] and user.role.code != "ADMIN":
+    if access not in ["owner", "admin"]:
         raise HTTPException(403, "Not enough permissions")
 
-    # проверяем существование пользователя
-    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    # проверка пользователя
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.is_active == True)
+    )
     target_user = result.scalar_one_or_none()
     if not target_user:
         raise HTTPException(404, "User not found")
 
-    # добавляем, если ещё не наблюдатель
+    # уже есть?
     existing = await db.execute(
         select(DocumentWatcher).where(
             DocumentWatcher.document_id == doc_id,
@@ -312,8 +274,7 @@ async def add_watcher(
     if existing.scalar_one_or_none():
         raise HTTPException(400, "User already watcher")
 
-    watcher = DocumentWatcher(document_id=doc_id, user_id=user_id)
-    db.add(watcher)
+    db.add(DocumentWatcher(document_id=doc_id, user_id=user_id))
     await db.commit()
 
     return {"status": "added"}
@@ -326,24 +287,19 @@ async def remove_watcher(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Удалить наблюдателя. Доступно автору, исполнителю, админу или самому наблюдателю."""
-    doc = await DocumentRepository.get_by_id(db, doc_id)
-    if not doc:
-        raise HTTPException(404, "Document not found")
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    # разрешено: автор, исполнитель, админ, или сам пользователь
-    if (user.id not in [doc.author_id, doc.executor_id]
-        and user.role.code != "ADMIN"
-        and user.id != user_id):
-        raise HTTPException(403, "Not enough permissions")
+    if access not in ["owner", "admin"] and user.id != user_id:
+        raise HTTPException(403)
 
-    watcher = await db.execute(
+    result = await db.execute(
         select(DocumentWatcher).where(
             DocumentWatcher.document_id == doc_id,
             DocumentWatcher.user_id == user_id
         )
     )
-    watcher = watcher.scalar_one_or_none()
+    watcher = result.scalar_one_or_none()
+
     if not watcher:
         raise HTTPException(404, "Watcher not found")
 
@@ -352,21 +308,16 @@ async def remove_watcher(
 
     return {"status": "removed"}
 
-
 @router.get("/{doc_id}/watchers")
 async def get_watchers(
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Получить список наблюдателей документа."""
-    doc = await DocumentRepository.get_by_id(db, doc_id)
-    if not doc:
-        raise HTTPException(404, "Document not found")
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
-    # проверка доступа: если пользователь не автор, не исполнитель и не админ, то он не видит список
-    if user.id not in [doc.author_id, doc.executor_id] and user.role.code != "ADMIN":
-        raise HTTPException(403, "Not enough permissions")
+    if access not in ["owner", "admin"]:
+        raise HTTPException(403)
 
     result = await db.execute(
         select(DocumentWatcher.user_id)
@@ -374,14 +325,15 @@ async def get_watchers(
     )
     watcher_ids = [row[0] for row in result.all()]
 
-    # получаем данные пользователей
-    if watcher_ids:
-        users_res = await db.execute(
-            select(User).where(User.id.in_(watcher_ids))
-        )
-        users = users_res.scalars().all()
-        return [
-            {"id": u.id, "full_name": u.full_name, "email": u.email}
-            for u in users
-        ]
-    return []
+    if not watcher_ids:
+        return []
+
+    users_res = await db.execute(
+        select(User).where(User.id.in_(watcher_ids))
+    )
+    users = users_res.scalars().all()
+
+    return [
+        {"id": u.id, "full_name": u.full_name, "email": u.email}
+        for u in users
+    ]

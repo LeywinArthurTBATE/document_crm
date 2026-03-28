@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.database import get_db
-from app.core.documents_access import can_access_document
+from app.core.documents_access import can_access_document, get_doc_or_403
 from app.core.security import decode_token
 from app.dependencies.auth import get_current_user
 from app.models import DocumentHistory, Document, DocumentWatcher, Notification, User
@@ -96,10 +96,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    # доступ
-    doc = await can_access_document(db, user, doc_id)
-    if not doc:
-        raise HTTPException(403)
+    doc, access = await get_doc_or_403(db, user, doc_id)
 
     # сообщение
     msg = DocumentMessage(
@@ -109,26 +106,24 @@ async def send_message(
     )
     db.add(msg)
 
-    # получаем watchers
-    res = await db.execute(
+    # участники
+    watchers_res = await db.execute(
         select(DocumentWatcher.user_id)
         .where(DocumentWatcher.document_id == doc_id)
     )
-    watchers = [row[0] for row in res.all()]
+    watchers = set(watchers_res.scalars().all())
 
-    # участники
     participants = set(filter(None, [
         doc.author_id,
         doc.executor_id,
         *watchers
     ]))
 
-    # уведомления в БД и отправка через вебсокет
+    # уведомления
     for uid in participants:
         if uid == user.id:
             continue
 
-        # запись в БД
         db.add(Notification(
             user_id=uid,
             type="message",
@@ -136,20 +131,19 @@ async def send_message(
             is_read=False
         ))
 
-        # отправка в реальном времени
         await manager.send_to_user(str(uid), {
             "type": "notification",
             "data": {
                 "type": "message",
                 "document_id": str(doc_id),
                 "author_name": user.full_name,
-                "text": text[:50]  # превью
+                "text": text[:50]
             }
         })
 
     await db.commit()
 
-    # Отправляем само сообщение всем в документе (через вебсокет)
+    # рассылка сообщения
     await manager.send_to_document(str(doc_id), {
         "type": "message",
         "data": {
@@ -163,7 +157,6 @@ async def send_message(
 
     return {"status": "ok"}
 
-
 @router.websocket("/ws/{doc_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -171,15 +164,13 @@ async def websocket_endpoint(
     token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Вебсокет для чата документа. Токен передаётся в query параметре ?token=..."""
-    # Аутентификация через токен
     try:
         payload = decode_token(token)
         user_id = payload.get("sub")
         if not user_id:
             await websocket.close(code=1008)
             return
-        # получаем пользователя из БД
+
         user = await db.get(User, UUID(user_id))
         if not user or not user.is_active:
             await websocket.close(code=1008)
@@ -188,13 +179,11 @@ async def websocket_endpoint(
         await websocket.close(code=1008)
         return
 
-    # Проверяем доступ к документу
-    doc = await can_access_document(db, user, doc_id)
+    doc, access = await can_access_document(db, user, doc_id)
     if not doc:
-        await websocket.close(code=1003)  # forbidden
+        await websocket.close(code=1003)
         return
 
-    # Подключаемся (передаём user_id)
     await manager.connect(websocket, str(doc_id), str(user.id))
 
     try:
@@ -204,7 +193,6 @@ async def websocket_endpoint(
             if not text:
                 continue
 
-            # Сохраняем сообщение в БД
             msg = DocumentMessage(
                 document_id=doc_id,
                 author_id=user.id,
@@ -212,28 +200,30 @@ async def websocket_endpoint(
             )
             db.add(msg)
 
-            # Создаём уведомления для участников
-            participants = set()
-            if doc.author_id != user.id:
-                participants.add(doc.author_id)
-            if doc.executor_id and doc.executor_id != user.id:
-                participants.add(doc.executor_id)
-            # добавляем наблюдателей
+            # участники (единая логика)
             watchers_res = await db.execute(
-                select(DocumentWatcher.user_id).where(DocumentWatcher.document_id == doc_id)
+                select(DocumentWatcher.user_id)
+                .where(DocumentWatcher.document_id == doc_id)
             )
-            for watcher_id in watchers_res.scalars().all():
-                if watcher_id != user.id:
-                    participants.add(watcher_id)
+            watchers = set(watchers_res.scalars().all())
+
+            participants = set(filter(None, [
+                doc.author_id,
+                doc.executor_id,
+                *watchers
+            ]))
 
             for uid in participants:
+                if uid == user.id:
+                    continue
+
                 db.add(Notification(
                     user_id=uid,
                     type="message",
                     entity_id=doc_id,
                     is_read=False
                 ))
-                # отправляем уведомление в реальном времени
+
                 await manager.send_to_user(str(uid), {
                     "type": "notification",
                     "data": {
@@ -246,7 +236,6 @@ async def websocket_endpoint(
 
             await db.commit()
 
-            # Отправляем сообщение всем в этом документе
             await manager.send_to_document(str(doc_id), {
                 "type": "message",
                 "data": {
@@ -261,7 +250,6 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         manager.disconnect(websocket, str(doc_id), str(user.id))
 
-
 @router.get("/{doc_id}/messages")
 async def get_messages(
     doc_id: UUID,
@@ -269,9 +257,8 @@ async def get_messages(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    doc = await can_access_document(db, user, doc_id)
-    if not doc:
-        raise HTTPException(403)
+    doc, access = await get_doc_or_403(db, user, doc_id)
+
     result = await db.execute(
         select(DocumentMessage)
         .where(DocumentMessage.document_id == doc_id)
@@ -279,19 +266,21 @@ async def get_messages(
         .limit(limit)
     )
     messages = result.scalars().all()
-    # Получаем имена авторов
+
     author_ids = {m.author_id for m in messages}
-    users = {}
+
+    users_map = {}
     if author_ids:
         res = await db.execute(select(User).where(User.id.in_(author_ids)))
-        users = {u.id: u.full_name for u in res.scalars().all()}
+        users_map = {u.id: u.full_name for u in res.scalars().all()}
+
     return [
         {
             "id": m.id,
             "author_id": m.author_id,
-            "author_name": users.get(m.author_id, "Неизвестный"),
+            "author_name": users_map.get(m.author_id, "Неизвестный"),
             "text": m.text,
             "created_at": m.created_at.isoformat()
         }
-        for m in reversed(messages)  # в хронологическом порядке
+        for m in reversed(messages)
     ]
