@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from uuid import UUID
 
-from app.core.database import get_db
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.security import verify_password, create_access_token, decode_token
-from app.schemas.auth import LoginRequest, TokenResponse
-from app.models.user import User
+from app.models import User
+from app.schemas.auth import LoginRequest
+from app.websocket_manager import manager
+from app.core.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
