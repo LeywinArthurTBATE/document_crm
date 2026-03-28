@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.security import verify_password, create_access_token, decode_token
 from app.models import User
@@ -55,18 +56,24 @@ async def notifications_websocket(
     websocket: WebSocket,
     db: AsyncSession = Depends(get_db),
 ):
-    await websocket.accept()
     token = websocket.cookies.get("access_token")
     if not token:
         await websocket.close(code=1008)
         return
+
+
     try:
         payload = decode_token(token)
         user_id = payload.get("sub")
         if not user_id:
             await websocket.close(code=1008)
             return
-        user = await db.get(User, UUID(user_id))
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.role))
+            .where(User.id == UUID(user_id))
+        )
+        user = result.scalar_one_or_none()
         if not user or not user.is_active:
             await websocket.close(code=1008)
             return
@@ -74,11 +81,14 @@ async def notifications_websocket(
         await websocket.close(code=1008)
         return
 
+    await websocket.accept()
+
+
     # Подключаем к менеджеру по user_id
     await manager.connect(websocket, f"notifications_{user_id}", str(user.id))
     try:
         while True:
             # Просто держим соединение открытым
-            await websocket.receive_text()
+            data = await websocket.receive_json()
     except WebSocketDisconnect:
         manager.disconnect(websocket, f"notifications_{user_id}", str(user.id))

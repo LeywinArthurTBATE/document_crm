@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select, or_, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.database import get_db
@@ -163,7 +164,6 @@ async def websocket_endpoint(
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    await websocket.accept()
     token = websocket.cookies.get("access_token")
     if not token:
         await websocket.close(code=1008)
@@ -176,13 +176,20 @@ async def websocket_endpoint(
             await websocket.close(code=1008)
             return
 
-        user = await db.get(User, UUID(user_id))
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.role))
+            .where(User.id == UUID(user_id))
+        )
+        user = result.scalar_one_or_none()
         if not user or not user.is_active:
             await websocket.close(code=1008)
             return
     except Exception:
         await websocket.close(code=1008)
         return
+
+    await websocket.accept()
 
     doc, access = await can_access_document(db, user, doc_id)
     if not doc:
