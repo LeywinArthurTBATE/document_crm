@@ -10,8 +10,9 @@ from app.core.database import get_db
 from app.core.documents_access import can_access_document
 from app.core.security import decode_token
 from app.dependencies.auth import get_current_user
-from app.models import DocumentHistory, Document, DocumentWatcher
-from app.models.document_message import DocumentMessage, Notification
+from app.models import DocumentHistory, Document, DocumentWatcher, Notification, User
+from app.models.document_message import DocumentMessage
+
 from app.websocket_manager import manager
 
 router = APIRouter(prefix="/chats", tags=["documents"])

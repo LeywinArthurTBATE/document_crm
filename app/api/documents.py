@@ -12,7 +12,7 @@ from starlette.responses import FileResponse
 
 from app.core.database import get_db
 from app.dependencies.auth import get_current_user
-from app.models import DocumentHistory
+from app.models import DocumentHistory, DocumentWatcher, User
 from app.repositories.permissions import require_permission
 from app.schemas.document import (
     DocumentCreate,
