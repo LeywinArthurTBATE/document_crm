@@ -9,7 +9,6 @@ class ConnectionManager:
         self.user_connections: Dict[str, Set[WebSocket]] = {}    # user_id -> websockets
 
     async def connect(self, websocket: WebSocket, doc_id: str, user_id: str):
-        await websocket.accept()
         # по документу
         if doc_id not in self.active_connections:
             self.active_connections[doc_id] = set()
