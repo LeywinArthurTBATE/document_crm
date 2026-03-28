@@ -1,12 +1,13 @@
-# app/services/document_service.py
 from datetime import datetime
+from sqlalchemy import select
+
 from app.models.document import DocumentStatus
 from app.models.document_history import DocumentHistory
 from app.models.document import Document
 from app.models.document_watcher import DocumentWatcher
 from app.models.notification import Notification
+from app.models.user import User
 from app.websocket_manager import manager
-from sqlalchemy import select
 
 
 class DocumentService:
@@ -15,10 +16,10 @@ class DocumentService:
     async def update_document(db, doc, data, user):
         updates = data.model_dump(exclude_unset=True)
 
-        # Сохраняем предыдущие значения для возможных уведомлений
         old_executor_id = doc.executor_id
         old_status = doc.status
 
+        # -------------------- UPDATE + HISTORY --------------------
         for field, new_value in updates.items():
             old_value = getattr(doc, field)
 
@@ -28,128 +29,90 @@ class DocumentService:
             old_val = old_value.value if hasattr(old_value, "value") else old_value
             new_val = new_value.value if hasattr(new_value, "value") else new_value
 
-            history = DocumentHistory(
+            db.add(DocumentHistory(
                 document_id=doc.id,
                 changed_by=user.id,
                 field=field,
                 old_value=str(old_val),
                 new_value=str(new_val),
-            )
+            ))
+
             setattr(doc, field, new_value)
-            db.add(history)
 
         doc.updated_at = datetime.utcnow()
 
-        if "status" in updates and updates["status"] == DocumentStatus.DONE:
+        if updates.get("status") == DocumentStatus.DONE:
             doc.completed_at = datetime.utcnow()
 
-        await db.commit()
-        await db.refresh(doc)
+        await db.flush()  # важно: не commit, чтобы не терять контекст
 
-        # --- Уведомления об изменениях ---
-        participants = set()
-        participants.add(doc.author_id)
+        # -------------------- PARTICIPANTS --------------------
+        participants = {doc.author_id}
+
         if doc.executor_id:
             participants.add(doc.executor_id)
-        # добавим наблюдателей
-        watchers_res = await db.execute(
-            select(DocumentWatcher.user_id).where(DocumentWatcher.document_id == doc.id)
-        )
-        for watcher_id in watchers_res.scalars().all():
-            participants.add(watcher_id)
 
-        # Уведомление о смене исполнителя
+        watchers_res = await db.execute(
+            select(DocumentWatcher.user_id)
+            .where(DocumentWatcher.document_id == doc.id)
+        )
+        participants.update(watchers_res.scalars().all())
+
+        # -------------------- LOAD USERS (ОДИН ЗАПРОС) --------------------
+        user_ids_to_load = set(participants)
+        user_ids_to_load.add(user.id)
+
+        res = await db.execute(
+            select(User.id, User.full_name)
+            .where(User.id.in_(user_ids_to_load))
+        )
+        users_map = {u.id: u.full_name for u in res.all()}
+
+        executor_name = users_map.get(doc.executor_id)
+
+        # -------------------- HELPER --------------------
+        async def notify(uid, event, notif_type):
+            db.add(Notification(
+                user_id=uid,
+                type=notif_type,
+                entity_id=doc.id,
+                is_read=False
+            ))
+
+            await manager.send_to_user(str(uid), {
+                "type": "notification",
+                "event": event,
+                "data": {
+                    "document_id": str(doc.id),
+                    "document_title": doc.title,
+                    "url": f"/documents/{doc.id}/view",
+                    "actor_id": str(user.id),
+                    "actor_name": users_map.get(user.id),
+                    "extra": {
+                        "new_executor": executor_name
+                    }
+                },
+                "meta": {
+                    "created_at": datetime.utcnow().isoformat()
+                }
+            })
+
+        # -------------------- EVENTS --------------------
         if "executor_id" in updates and old_executor_id != doc.executor_id:
             for uid in participants:
                 if uid != user.id:
-                    notif = Notification(
-                        user_id=uid,
-                        type="assign",
-                        entity_id=doc.id,
-                        is_read=False
-                    )
-                    db.add(notif)
-                    await manager.send_to_user(str(uid), {
-                        "type": "notification",
-                        "event": "assign",
-                        "data": {
-                            "document_id": str(doc.id),
-                            "document_title": doc.title,
-                            "url": f"/documents/{doc.id}/view",
+                    await notify(uid, "assign", "assign")
 
-                            "actor_id": str(user.id),
-                            "actor_name": user.full_name,
-
-                            "extra": {
-                                "new_executor": doc.executor.full_name if doc.executor else None
-                            }
-                        },
-                        "meta": {
-                            "created_at": datetime.utcnow().isoformat()
-                        }
-                    })
-
-        # Уведомление о смене статуса
         if "status" in updates and old_status != doc.status:
             for uid in participants:
                 if uid != user.id:
-                    notif = Notification(
-                        user_id=uid,
-                        type="status_change",
-                        entity_id=doc.id,
-                        is_read=False
-                    )
-                    db.add(notif)
-                    await manager.send_to_user(str(uid), {
-                        "type": "notification",
-                        "event": "status_change",
-                        "data": {
-                            "document_id": str(doc.id),
-                            "document_title": doc.title,
-                            "url": f"/documents/{doc.id}/view",
+                    await notify(uid, "status_change", "status_change")
 
-                            "actor_id": str(user.id),
-                            "actor_name": user.full_name,
-
-                            "extra": {
-                                "new_executor": doc.executor.full_name if doc.executor else None
-                            }
-                        },
-                        "meta": {
-                            "created_at": datetime.utcnow().isoformat()
-                        }
-                    })
-
-        # Уведомление о смене дедлайна
         if "deadline" in updates:
             for uid in participants:
                 if uid != user.id:
-                    notif = Notification(
-                        user_id=uid,
-                        type="deadline_change",
-                        entity_id=doc.id,
-                        is_read=False
-                    )
-                    db.add(notif)
-                    await manager.send_to_user(str(uid), {
-                        "type": "notification",
-                        "event": "deadline_change",
-                        "data": {
-                            "document_id": str(doc.id),
-                            "document_title": doc.title,
-                            "url": f"/documents/{doc.id}/view",
+                    await notify(uid, "deadline_change", "deadline_change")
 
-                            "actor_id": str(user.id),
-                            "actor_name": user.full_name,
-
-                            "extra": {
-                                "new_executor": doc.executor.full_name if doc.executor else None
-                            }
-                        },
-                        "meta": {
-                            "created_at": datetime.utcnow().isoformat()
-                        }
-                    })
         await db.commit()
         return doc
 
@@ -168,27 +131,33 @@ class DocumentService:
         db.add(doc)
         await db.flush()
 
-        history = DocumentHistory(
+        db.add(DocumentHistory(
             document_id=doc.id,
             changed_by=author_id,
             field="created",
             old_value="",
             new_value="created",
-        )
-        db.add(history)
+        ))
 
-        await db.commit()
-        await db.refresh(doc)
-
-        # Уведомление автору (не нужно) и исполнителю, если он есть
+        # заранее грузим нужных пользователей
+        user_ids = {author_id}
         if doc.executor_id:
-            notif = Notification(
+            user_ids.add(doc.executor_id)
+
+        res = await db.execute(
+            select(User.id, User.full_name)
+            .where(User.id.in_(user_ids))
+        )
+        users_map = {u.id: u.full_name for u in res.all()}
+
+        if doc.executor_id:
+            db.add(Notification(
                 user_id=doc.executor_id,
                 type="new_document",
                 entity_id=doc.id,
                 is_read=False
-            )
-            db.add(notif)
+            ))
+
             await manager.send_to_user(str(doc.executor_id), {
                 "type": "notification",
                 "event": "new_document",
@@ -196,7 +165,7 @@ class DocumentService:
                     "document_id": str(doc.id),
                     "document_title": doc.title,
                     "url": f"/documents/{doc.id}/view",
-                    "actor_name": doc.author.full_name,
+                    "actor_name": users_map.get(author_id),
                 },
                 "meta": {
                     "created_at": datetime.utcnow().isoformat()
