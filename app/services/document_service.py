@@ -191,11 +191,15 @@ class DocumentService:
             db.add(notif)
             await manager.send_to_user(str(doc.executor_id), {
                 "type": "notification",
+                "event": "new_document",
                 "data": {
-                    "type": "new_document",
                     "document_id": str(doc.id),
                     "document_title": doc.title,
-                    "author": doc.author.full_name
+                    "url": f"/documents/{doc.id}/view",
+                    "actor_name": doc.author.full_name,
+                },
+                "meta": {
+                    "created_at": datetime.utcnow().isoformat()
                 }
             })
 

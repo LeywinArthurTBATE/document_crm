@@ -57,14 +57,16 @@ async def process_overdue_documents(db: AsyncSession):
                 # Отправляем через вебсокет
                 await manager.send_to_user(str(uid), {
                     "type": "notification",
+                    "event": "overdue",
                     "data": {
-                        "type": "overdue",
                         "document_id": str(doc.id),
                         "document_title": doc.title,
-                        "deadline": doc.deadline.isoformat(),
-                        "url": f"/documents/{str(doc.id)}/view",
-                        "event": "overdue",
+                        "url": f"/documents/{doc.id}/view",
                         "actor_name": "system",
+                        "deadline": doc.deadline.isoformat(),
+                    },
+                    "meta": {
+                        "created_at": datetime.utcnow().isoformat()
                     }
                 })
 

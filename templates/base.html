@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* ... (оставляем существующие стили) ... */
         body {
             background: linear-gradient(135deg, #f8fafc 0%, #eef2f6 100%);
             font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -60,7 +59,6 @@
             z-index: 40;
             border-bottom: 1px solid #e2e8f0;
         }
-        /* Стили для уведомлений */
         .toast {
             position: fixed;
             bottom: 1.5rem;
@@ -74,12 +72,12 @@
             animation: slideUp 0.3s ease;
             font-size: 0.875rem;
             font-weight: 500;
+            max-width: 320px;
         }
         @keyframes slideUp {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        /* Анимация для новых сообщений */
         .message-new {
             animation: fadeInUp 0.2s ease;
         }
@@ -90,7 +88,7 @@
     <nav class="bg-white/80 backdrop-blur-md border-b border-blue-100 shadow-sm sticky top-0 z-50 transition-smooth">
         <div class="max-w-[1600px] mx-auto px-6">
             <div class="flex justify-between h-16">
-                <div class="flex items-center">
+                <div class="flex items-center space-x-4">
                     <a href="/" class="flex items-center space-x-2 text-xl font-bold text-gray-800 hover:text-blue-600 transition-fast">
                         <div class="bg-blue-600 p-1.5 rounded-lg shadow-md">
                             <i class="fas fa-file-alt text-white text-sm"></i>
@@ -134,25 +132,29 @@
         let wsNotifications = null;
         let currentUser = null;
 
+        // Показывает всплывающее уведомление
         function showToast(message, url = null) {
             const toast = document.createElement('div');
             toast.className = 'toast cursor-pointer';
 
             toast.innerHTML = `
                 <div class="flex items-start gap-2">
-                    <i class="fas fa-bell mt-1"></i>
-                    <div>${message}</div>
+                    <i class="fas fa-bell mt-1 flex-shrink-0"></i>
+                    <div class="flex-1">${message}</div>
                 </div>
             `;
 
             if (url) {
-                toast.onclick = () => window.location.href = url;
+                toast.onclick = () => {
+                    window.location.href = url;
+                };
             }
 
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 4000);
+            setTimeout(() => toast.remove(), 5000);
         }
 
+        // Экранирование HTML
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/[&<>]/g, function(m) {
@@ -163,6 +165,7 @@
             });
         }
 
+        // Инициалы из ФИО
         function getInitials(fullName) {
             if (!fullName) return '?';
             const parts = fullName.trim().split(/\s+/);
@@ -170,121 +173,139 @@
             return (parts[0].charAt(0) + parts[parts.length-1].charAt(0)).toUpperCase();
         }
 
+        // Выход из системы
         async function logout() {
             try {
                 await fetch('/logout', { method: 'POST', credentials: 'include' });
-            } catch (e) {}
+            } catch (e) {
+                console.error('Logout error', e);
+            }
             window.location.href = '/login';
         }
 
         // Подключение к WebSocket уведомлений
         function connectNotifications() {
+            if (!currentUser) return;
 
             const token = getCookie("access_token");
             if (!token) {
-                console.warn("WS: нет токена");
+                console.warn("WS: нет токена, пропускаем");
                 return;
             }
+
             if (wsNotifications) {
                 wsNotifications.close();
             }
-            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications?token=${token}`;
+
+            // Используем только cookie, токен в query не нужен
+            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`;
             wsNotifications = new WebSocket(wsUrl);
+
             wsNotifications.onopen = () => {
-                console.log('WS connected');
+                console.log('WebSocket уведомлений подключён');
             };
+
             wsNotifications.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type !== 'notification') return;
 
-                const msg = JSON.parse(event.data);
+                    const { event: evt, data, meta } = msg;
 
-                if (msg.type !== 'notification') return;
+                    let message = '';
+                    let url = data.url || null;
 
-                const { event: evt, data } = msg;
+                    // Формируем URL из document_id, если не передан
+                    if (!url && data.document_id) {
+                        url = `/documents/${data.document_id}/view`;
+                    }
 
-                let message = '';
-                let url = data.url || null;
+                    // Формируем текст сообщения в зависимости от типа события
+                    switch (evt) {
+                        case 'message':
+                            message = `
+                                <b>${escapeHtml(data.actor_name)}</b><br>
+                                ${escapeHtml(data.text || '')}<br>
+                                <span class="text-xs opacity-70">${escapeHtml(data.document_title)}</span>
+                            `;
+                            break;
 
-                if (evt === 'message') {
-                    message = `
-                        <b>${escapeHtml(data.actor_name)}</b><br>
-                        ${escapeHtml(data.text || '')}<br>
-                        <span class="text-xs opacity-70">${escapeHtml(data.document_title)}</span>
-                    `;
+                        case 'assign':
+                            let assignText = `Назначен исполнитель<br><b>${escapeHtml(data.document_title)}</b>`;
+                            if (data.extra?.new_executor) {
+                                assignText += `<br><span class="text-xs opacity-70">${escapeHtml(data.extra.new_executor)}</span>`;
+                            }
+                            message = assignText;
+                            break;
+
+                        case 'status_change':
+                            message = `Статус изменён<br><b>${escapeHtml(data.document_title)}</b>`;
+                            break;
+
+                        case 'deadline_change':
+                            let deadlineText = `Новый срок<br><b>${escapeHtml(data.document_title)}</b>`;
+                            if (data.extra?.new_deadline) {
+                                deadlineText += `<br><span class="text-xs opacity-70">${escapeHtml(data.extra.new_deadline)}</span>`;
+                            }
+                            message = deadlineText;
+                            break;
+
+                        case 'overdue':
+                            message = `⚠ Просрочен<br><b>${escapeHtml(data.document_title)}</b>`;
+                            break;
+
+                        case 'new_document':
+                            message = `Новый документ<br><b>${escapeHtml(data.document_title)}</b>`;
+                            if (data.actor_name) {
+                                message += `<br><span class="text-xs opacity-70">от ${escapeHtml(data.actor_name)}</span>`;
+                            }
+                            break;
+
+                        default:
+                            message = `Событие: ${evt}<br><b>${escapeHtml(data.document_title || '')}</b>`;
+                            break;
+                    }
+
+                    showToast(message, url);
+                    loadUnreadCount();
+
+                    // Отправляем событие для других частей страницы
+                    window.dispatchEvent(new CustomEvent('notificationReceived', { detail: msg }));
+                } catch (err) {
+                    console.error('Ошибка обработки WebSocket сообщения:', err);
                 }
-
-                else if (evt === 'assign') {
-                    message = `
-                        Назначен исполнитель<br>
-                        <b>${escapeHtml(data.document_title)}</b>
-                    `;
-                }
-
-                else if (evt === 'status_change') {
-                    message = `
-                        Статус изменен<br>
-                        <b>${escapeHtml(data.document_title)}</b>
-                    `;
-                }
-
-                else if (evt === 'deadline_change') {
-                    message = `
-                        Новый срок<br>
-                        <b>${escapeHtml(data.document_title)}</b><br>
-                        ${escapeHtml(data.extra?.new_deadline ?? '')}
-                    `;
-                }
-
-                else if (evt === 'overdue') {
-                    message = `
-                        ⚠ Просрочен<br>
-                        <b>${escapeHtml(data.document_title)}</b>
-                    `;
-                }
-
-                else if (evt === 'new_document') {
-                    message = `
-                        Новый документ<br>
-                        <b>${escapeHtml(data.document_title)}</b>
-                    `;
-                }
-
-                else {
-                    message = `Событие: ${evt}`;
-                }
-
-                showToast(message, url);
-                loadUnreadCount();
-
-                window.dispatchEvent(
-                    new CustomEvent('notificationReceived', { detail: msg })
-                );
             };
+
             wsNotifications.onclose = () => {
-                console.log('WS closed → reconnect');
+                console.log('WebSocket закрыт, переподключение через 5 секунд');
                 setTimeout(connectNotifications, 5000);
             };
-            wsNotifications.onerror = (e) => {
-                console.error('WS error', e);
+
+            wsNotifications.onerror = (err) => {
+                console.error('WebSocket ошибка:', err);
             };
         }
 
+        // Получение cookie по имени
         function getCookie(name) {
-            return document.cookie.split('; ')
-                .find(row => row.startsWith(name + '='))
-                ?.split('=')[1];
+            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? match[2] : null;
         }
 
+        // Загрузка текущего пользователя
         async function loadCurrentUser() {
             try {
                 const res = await fetch('/users/me', { credentials: 'include' });
-                if (!res.ok) throw new Error();
+                if (!res.ok) return null;
                 currentUser = await res.json();
                 return currentUser;
-            } catch {
+            } catch (err) {
+                console.error('Ошибка загрузки пользователя:', err);
                 return null;
             }
         }
 
+        // Обновление навигации (десктоп и мобилка)
         function updateNav() {
             const navDesktop = document.getElementById('user-nav');
             const navMobile = document.getElementById('mobileUserNav');
@@ -292,6 +313,7 @@
             if (currentUser) {
                 const initials = getInitials(currentUser.full_name);
                 const isAdmin = currentUser.role && currentUser.role.code === 'ADMIN';
+
                 navDesktop.innerHTML = `
                     <div class="dropdown relative">
                         <div class="avatar cursor-pointer flex items-center justify-center">
@@ -300,7 +322,7 @@
                         <div class="dropdown-menu absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
                             <div class="px-4 py-2 border-b border-gray-100">
                                 <p class="text-sm font-medium text-gray-800">${escapeHtml(currentUser.full_name)}</p>
-                                <p class="text-xs text-gray-500">${currentUser.email || ''}</p>
+                                <p class="text-xs text-gray-500">${escapeHtml(currentUser.email || '')}</p>
                             </div>
                             ${isAdmin ? `<a href="/admin/users" class="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-fast">
                                 <i class="fas fa-users mr-2"></i>Управление пользователями
@@ -311,10 +333,11 @@
                         </div>
                     </div>
                 `;
+
                 navMobile.innerHTML = `
                     <div class="py-2 border-b border-gray-100">
                         <p class="font-medium">${escapeHtml(currentUser.full_name)}</p>
-                        <p class="text-sm text-gray-500">${currentUser.email || ''}</p>
+                        <p class="text-sm text-gray-500">${escapeHtml(currentUser.email || '')}</p>
                     </div>
                     ${isAdmin ? `<a href="/admin/users" class="block py-2 text-gray-700 hover:text-blue-600 transition-fast">
                         <i class="fas fa-users mr-2"></i>Пользователи
@@ -323,27 +346,38 @@
                         <i class="fas fa-sign-out-alt mr-2"></i>Выйти
                     </button>
                 `;
+
                 navDesktop.classList.remove('hidden');
             } else {
                 const guestHtml = `<a href="/login" class="text-gray-700 hover:text-blue-600">Вход</a>`;
                 navDesktop.innerHTML = guestHtml;
                 navMobile.innerHTML = guestHtml;
+                navDesktop.classList.remove('hidden');
             }
         }
 
+        // Мобильное меню
         function initMobileMenu() {
             const btn = document.getElementById('mobileMenuBtn');
             const menu = document.getElementById('mobileMenu');
             if (btn && menu) {
-                btn.addEventListener('click', () => menu.classList.toggle('open'));
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    menu.classList.toggle('open');
+                });
                 document.addEventListener('click', (e) => {
-                    if (!menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove('open');
+                    if (!menu.contains(e.target) && !btn.contains(e.target)) {
+                        menu.classList.remove('open');
+                    }
                 });
             }
         }
+
+        // Загрузка количества непрочитанных уведомлений
         async function loadUnreadCount() {
             try {
                 const res = await fetch('/users/me/notifications?unread_only=true', { credentials: 'include' });
+                if (!res.ok) throw new Error('Ошибка загрузки количества');
                 const data = await res.json();
                 const count = data.length;
                 const badge = document.getElementById('unreadCount');
@@ -354,17 +388,20 @@
                     badge.classList.add('hidden');
                 }
             } catch (err) {
-                console.error('Failed to load unread count', err);
+                console.error('Ошибка загрузки счётчика уведомлений:', err);
             }
         }
 
+        // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', async () => {
             currentUser = await loadCurrentUser();
             updateNav();
             initMobileMenu();
             if (currentUser) {
                 connectNotifications();
-                loadUnreadCount();  // загружаем начальное количество
+                loadUnreadCount();
+                // Обновляем счётчик каждые 30 секунд на случай, если уведомления пришли не через WS
+                setInterval(loadUnreadCount, 30000);
             }
         });
     </script>
