@@ -1,24 +1,21 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
+from apscheduler.triggers.interval import IntervalTrigger
 from app.core.database import AsyncSessionLocal
 from app.workers.overdue_worker import process_overdue_documents
-
+import asyncio
 
 scheduler = AsyncIOScheduler()
 
-
-async def overdue_job():
+async def run_overdue_worker():
     async with AsyncSessionLocal() as db:
         await process_overdue_documents(db)
 
-
 def start_scheduler():
+    # запускаем каждые 30 минут
     scheduler.add_job(
-        overdue_job,
-        "interval",
-        minutes=1,  # ⚠️ потом можно увеличить до 5-10
-        id="overdue_job",
-        replace_existing=True,
+        run_overdue_worker,
+        trigger=IntervalTrigger(minutes=30),
+        id="overdue_worker",
+        replace_existing=True
     )
-
     scheduler.start()

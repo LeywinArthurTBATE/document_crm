@@ -156,3 +156,58 @@ async def update_user(
     await db.refresh(user)
 
     return user
+
+# app/api/users.py (добавить в конец файла)
+from app.models.notification import Notification
+from sqlalchemy import update as sql_update
+
+@router.get("/me/notifications")
+async def get_my_notifications(
+    unread_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = select(Notification).where(Notification.user_id == current_user.id)
+    if unread_only:
+        query = query.where(Notification.is_read == False)
+    query = query.order_by(Notification.created_at.desc())
+    result = await db.execute(query)
+    notifications = result.scalars().all()
+    return [
+        {
+            "id": n.id,
+            "type": n.type,
+            "entity_id": n.entity_id,
+            "is_read": n.is_read,
+            "created_at": n.created_at,
+        }
+        for n in notifications
+    ]
+
+
+@router.patch("/me/notifications/{notification_id}")
+async def mark_notification_read(
+    notification_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    notification = await db.get(Notification, notification_id)
+    if not notification or notification.user_id != current_user.id:
+        raise HTTPException(404, "Notification not found")
+    notification.is_read = True
+    await db.commit()
+    return {"status": "read"}
+
+
+@router.patch("/me/notifications/read-all")
+async def mark_all_notifications_read(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await db.execute(
+        sql_update(Notification)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .values(is_read=True)
+    )
+    await db.commit()
+    return {"status": "all read"}

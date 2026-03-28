@@ -1,8 +1,9 @@
+# app/main.py
 from fastapi import FastAPI
 from app.api.router import router
 from app.workers.scheduler import start_scheduler, scheduler
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+
 app = FastAPI()
 
 app.include_router(router)
@@ -14,4 +15,3 @@ async def startup():
     if not scheduler.running:
         print("Starting scheduler")
         start_scheduler()
-

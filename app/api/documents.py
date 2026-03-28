@@ -25,6 +25,7 @@ from app.utils.file_storage import save_file, save_file_stream
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+
 async def check_owner_or_permission(db, user, doc, perm_own, perm_any):
     if user.id in [doc.author_id, doc.executor_id]:
         await require_permission(db, user, perm_own)
@@ -275,3 +276,112 @@ async def get_document_history(
         })
 
     return response
+
+
+# app/api/documents.py (добавить в конец файла)
+
+@router.post("/{doc_id}/watchers/{user_id}")
+async def add_watcher(
+    doc_id: UUID,
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Добавить наблюдателя к документу. Доступно автору, исполнителю и админу."""
+    doc = await DocumentRepository.get_by_id(db, doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    # проверка прав: только автор, исполнитель или админ
+    if user.id not in [doc.author_id, doc.executor_id] and user.role.code != "ADMIN":
+        raise HTTPException(403, "Not enough permissions")
+
+    # проверяем существование пользователя
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(404, "User not found")
+
+    # добавляем, если ещё не наблюдатель
+    existing = await db.execute(
+        select(DocumentWatcher).where(
+            DocumentWatcher.document_id == doc_id,
+            DocumentWatcher.user_id == user_id
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "User already watcher")
+
+    watcher = DocumentWatcher(document_id=doc_id, user_id=user_id)
+    db.add(watcher)
+    await db.commit()
+
+    return {"status": "added"}
+
+
+@router.delete("/{doc_id}/watchers/{user_id}")
+async def remove_watcher(
+    doc_id: UUID,
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Удалить наблюдателя. Доступно автору, исполнителю, админу или самому наблюдателю."""
+    doc = await DocumentRepository.get_by_id(db, doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    # разрешено: автор, исполнитель, админ, или сам пользователь
+    if (user.id not in [doc.author_id, doc.executor_id]
+        and user.role.code != "ADMIN"
+        and user.id != user_id):
+        raise HTTPException(403, "Not enough permissions")
+
+    watcher = await db.execute(
+        select(DocumentWatcher).where(
+            DocumentWatcher.document_id == doc_id,
+            DocumentWatcher.user_id == user_id
+        )
+    )
+    watcher = watcher.scalar_one_or_none()
+    if not watcher:
+        raise HTTPException(404, "Watcher not found")
+
+    await db.delete(watcher)
+    await db.commit()
+
+    return {"status": "removed"}
+
+
+@router.get("/{doc_id}/watchers")
+async def get_watchers(
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Получить список наблюдателей документа."""
+    doc = await DocumentRepository.get_by_id(db, doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    # проверка доступа: если пользователь не автор, не исполнитель и не админ, то он не видит список
+    if user.id not in [doc.author_id, doc.executor_id] and user.role.code != "ADMIN":
+        raise HTTPException(403, "Not enough permissions")
+
+    result = await db.execute(
+        select(DocumentWatcher.user_id)
+        .where(DocumentWatcher.document_id == doc_id)
+    )
+    watcher_ids = [row[0] for row in result.all()]
+
+    # получаем данные пользователей
+    if watcher_ids:
+        users_res = await db.execute(
+            select(User).where(User.id.in_(watcher_ids))
+        )
+        users = users_res.scalars().all()
+        return [
+            {"id": u.id, "full_name": u.full_name, "email": u.email}
+            for u in users
+        ]
+    return []
