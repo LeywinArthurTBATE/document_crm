@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Уведомления{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-6">
+    <div class="flex justify-between items-center mb-4">
+        <h1 class="text-2xl font-bold">Уведомления</h1>
+        <button id="markAllReadBtn" class="text-sm text-blue-600 hover:underline">Прочитать все</button>
+    </div>
+    <div id="notificationsList" class="space-y-3">
+        <!-- уведомления будут загружены сюда -->
+        <div class="text-center text-gray-400 py-8">Загрузка...</div>
+    </div>
+</div>
+
+<script>
+    // Функция загрузки уведомлений
+    async function loadNotifications() {
+        const res = await fetch('/users/me/notifications');
+        const data = await res.json();
+        const container = document.getElementById('notificationsList');
+        if (data.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-400 py-8">Нет уведомлений</div>';
+            return;
+        }
+        container.innerHTML = data.map(n => renderNotification(n)).join('');
+    }
+
+    function renderNotification(notif) {
+        const isUnread = !notif.is_read;
+        const icon = notif.type === 'message' ? 'fa-comment' :
+                     notif.type === 'status_change' ? 'fa-exchange-alt' :
+                     notif.type === 'assign' ? 'fa-user-plus' :
+                     notif.type === 'deadline_change' ? 'fa-calendar-alt' :
+                     notif.type === 'overdue' ? 'fa-exclamation-triangle' :
+                     notif.type === 'new_document' ? 'fa-file-alt' : 'fa-bell';
+        return `
+            <div class="bg-white rounded-lg shadow-sm border-l-4 ${isUnread ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} p-4 flex justify-between items-start">
+                <div class="flex gap-3">
+                    <i class="fas ${icon} text-gray-500 mt-1"></i>
+                    <div>
+                        <p class="text-gray-800">${notif.type === 'message' ? 'Новое сообщение' : 'Изменение документа'}</p>
+                        <p class="text-sm text-gray-500">${new Date(notif.created_at).toLocaleString()}</p>
+                    </div>
+                </div>
+                ${!notif.is_read ? `<button onclick="markRead('${notif.id}')" class="text-xs text-blue-600 hover:underline">Прочитано</button>` : ''}
+            </div>
+        `;
+    }
+
+    // WebSocket для обновления в реальном времени
+    function connectNotifications() {
+        const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'notification') {
+                // Добавляем новое уведомление в начало списка
+                const container = document.getElementById('notificationsList');
+                const newNotifHtml = renderNotification({
+                    id: Date.now(), // временный id, можно заменить на реальный после загрузки
+                    type: data.data.type,
+                    is_read: false,
+                    created_at: new Date().toISOString()
+                });
+                container.insertAdjacentHTML('afterbegin', newNotifHtml);
+                // Можно также показать тост
+                showToast('Новое уведомление!', 'info');
+            }
+        };
+        ws.onclose = () => setTimeout(connectNotifications, 5000);
+    }
+
+    function markRead(id) {
+        fetch(`/users/me/notifications/${id}`, { method: 'PATCH' }).then(() => loadNotifications());
+    }
+
+    document.getElementById('markAllReadBtn').onclick = () => {
+        fetch('/users/me/notifications/read-all', { method: 'PATCH' }).then(() => loadNotifications());
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadNotifications();
+        connectNotifications();
+    });
+</script>
+{% endblock %}

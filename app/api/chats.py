@@ -161,7 +161,6 @@ async def send_message(
 async def websocket_endpoint(
     websocket: WebSocket,
     doc_id: UUID,
-    token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
     await websocket.accept()

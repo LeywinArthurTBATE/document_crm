@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
+from app.core.documents_access import can_access_document
 from app.core.templates import templates  # ✅ теперь правильно
 from app.dependencies.auth import get_current_user, get_optional_user
 from app.models import Document, User
@@ -64,31 +65,21 @@ def get_status_text(status):
     }
     return mapping.get(str(status), str(status))
 
+
 @router.get("/documents/{doc_id}/view")
-async def document_page(
-    request: Request,
-    doc_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(get_optional_user),
-):
+async def document_page(request: Request, doc_id: UUID, db: AsyncSession = Depends(get_db), user=Depends(get_optional_user)):
     if not user:
         return RedirectResponse("/login")
-    if user.role.code != "ADMIN":
-        return RedirectResponse("/")  # или 403
-    result = await db.execute(
-        select(Document)
-        .options(
-            joinedload(Document.author),
-            joinedload(Document.executor)
-        )
-        .where(Document.id == doc_id)
-    )
-
-    doc = result.scalar_one_or_none()
-
+    doc, access = await can_access_document(db, user, doc_id)
     if not doc:
         raise HTTPException(404)
-
+    # подгружаем автора и исполнителя
+    result = await db.execute(
+        select(Document)
+        .options(joinedload(Document.author), joinedload(Document.executor))
+        .where(Document.id == doc_id)
+    )
+    doc = result.scalar_one()
     return templates.TemplateResponse("document_detail.html", {
         "request": request,
         "doc": doc,
@@ -96,3 +87,9 @@ async def document_page(
         "get_status_text": get_status_text,
         "user": user,
     })
+
+@router.get("/notifications", response_class=HTMLResponse)
+async def notifications_page(request: Request, user=Depends(get_optional_user)):
+    if not user:
+        return RedirectResponse("/login")
+    return templates.TemplateResponse("notifications.html", {"request": request})

@@ -97,6 +97,10 @@
                         </div>
                         <span class="hidden sm:inline-block">DocFlow</span>
                     </a>
+                    <a href="/notifications" class="relative text-gray-600 hover:text-blue-600 transition-fast" id="notificationsIcon">
+                        <i class="fas fa-bell text-xl"></i>
+                        <span id="unreadCount" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 hidden">0</span>
+                    </a>
                 </div>
                 <div class="flex items-center space-x-4">
                     <button id="mobileMenuBtn" class="md:hidden text-gray-600 hover:text-blue-600 focus:outline-none">
@@ -188,6 +192,9 @@
                         message = `Уведомление: ${JSON.stringify(notif)}`;
                     }
                     showToast(message, 'info');
+                    loadUnreadCount();  // обновляем счетчик
+                    // диспатчим событие для страницы уведомлений
+                    window.dispatchEvent(new CustomEvent('notificationReceived', { detail: data }));
                 }
             };
             wsNotifications.onclose = () => {
@@ -269,6 +276,22 @@
                 });
             }
         }
+        async function loadUnreadCount() {
+            try {
+                const res = await fetch('/users/me/notifications?unread_only=true', { credentials: 'include' });
+                const data = await res.json();
+                const count = data.length;
+                const badge = document.getElementById('unreadCount');
+                if (count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            } catch (err) {
+                console.error('Failed to load unread count', err);
+            }
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             currentUser = await loadCurrentUser();
@@ -276,6 +299,7 @@
             initMobileMenu();
             if (currentUser) {
                 connectNotifications();
+                loadUnreadCount();  // загружаем начальное количество
             }
         });
     </script>
