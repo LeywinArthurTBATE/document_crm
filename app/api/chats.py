@@ -259,3 +259,38 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, str(doc_id), str(user.id))
+
+
+@router.get("/{doc_id}/messages")
+async def get_messages(
+    doc_id: UUID,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    doc = await can_access_document(db, user, doc_id)
+    if not doc:
+        raise HTTPException(403)
+    result = await db.execute(
+        select(DocumentMessage)
+        .where(DocumentMessage.document_id == doc_id)
+        .order_by(DocumentMessage.created_at.desc())
+        .limit(limit)
+    )
+    messages = result.scalars().all()
+    # Получаем имена авторов
+    author_ids = {m.author_id for m in messages}
+    users = {}
+    if author_ids:
+        res = await db.execute(select(User).where(User.id.in_(author_ids)))
+        users = {u.id: u.full_name for u in res.scalars().all()}
+    return [
+        {
+            "id": m.id,
+            "author_id": m.author_id,
+            "author_name": users.get(m.author_id, "Неизвестный"),
+            "text": m.text,
+            "created_at": m.created_at.isoformat()
+        }
+        for m in reversed(messages)  # в хронологическом порядке
+    ]

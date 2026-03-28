@@ -46,3 +46,32 @@ async def login(
     )
 
     return response
+
+@router.websocket("/ws/notifications")
+async def notifications_websocket(
+    websocket: WebSocket,
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            await websocket.close(code=1008)
+            return
+        user = await db.get(User, UUID(user_id))
+        if not user or not user.is_active:
+            await websocket.close(code=1008)
+            return
+    except Exception:
+        await websocket.close(code=1008)
+        return
+
+    # Подключаем к менеджеру по user_id
+    await manager.connect(websocket, f"notifications_{user_id}", str(user.id))
+    try:
+        while True:
+            # Просто держим соединение открытым
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, f"notifications_{user_id}", str(user.id))
