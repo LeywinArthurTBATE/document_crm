@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Set, Tuple
 from fastapi import WebSocket
 
@@ -60,7 +61,10 @@ class ConnectionManager:
 
         for ws in list(self.user_connections[user_id]):
             try:
-                await ws.send_json(message)
+
+                await ws.send_text(
+                    json.dumps(message, ensure_ascii=False)
+                )
             except:
                 dead.append(ws)
 
