@@ -246,7 +246,6 @@
 </div>
 
 <script>
-    currentUser = await loadCurrentUser();
     let currentView = 'table'; // 'table' или 'card'
     // --- Вспомогательные функции ---
     function showToast(message, type = 'success') {
@@ -596,6 +595,9 @@
 
     // --- Инициализация и обработчики переключения ---
     document.addEventListener('DOMContentLoaded', async () => {
+        // Здесь уже правильно используется await
+        currentUser = await loadCurrentUser();
+
         const savedView = localStorage.getItem('documentsView');
         if (savedView === 'card') setView('card');
         else setView('table');
@@ -603,13 +605,9 @@
         document.getElementById('tableViewBtn').addEventListener('click', () => setView('table'));
         document.getElementById('cardViewBtn').addEventListener('click', () => setView('card'));
 
-        currentUser = await loadCurrentUser();
-
-        // 🔐 проверка роли
         if (['ADMIN', 'MANAGER'].includes(currentUser?.role?.code)) {
             await renderUsersToFilter();
         } else {
-            // ❌ скрываем фильтр
             const filterEl = document.getElementById('executor_filter');
             filterEl?.classList.add('hidden');
         }
