@@ -208,15 +208,16 @@
             wsNotifications.onmessage = (event) => {
                 try {
                     console.log("RAW:", event.data);
+
+                    const msg = JSON.parse(event.data);
+
                     console.log("PARSED:", msg);
                     console.log("DATA:", msg.data);
                     console.log("TITLE:", msg.data?.document_title);
 
-                    const msg = JSON.parse(event.data);
                     if (msg.type !== 'notification') return;
 
                     const { event: evt, data, meta } = msg;
-
                     let message = '';
                     let url = data.url || null;
 
