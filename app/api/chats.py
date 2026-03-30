@@ -269,7 +269,7 @@ async def websocket_endpoint(
             })
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket, str(doc_id), str(user.id))
+        manager.disconnect(websocket)
 
 @router.get("/{doc_id}/messages")
 async def get_messages(

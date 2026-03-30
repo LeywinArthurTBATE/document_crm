@@ -91,4 +91,4 @@ async def notifications_websocket(
             # Просто держим соединение открытым
             data = await websocket.receive_json()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, f"notifications_{user_id}", str(user.id))
+        manager.disconnect(websocket)
