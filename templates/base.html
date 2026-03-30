@@ -187,20 +187,13 @@
         function connectNotifications() {
             if (!currentUser) return;
 
-            const token = getCookie("access_token");
-            if (!token) {
-                console.warn("WS: нет токена, пропускаем");
-                return;
-            }
 
-            if (wsNotifications) {
-                wsNotifications.close();
-            }
+
+            if (wsNotifications) wsNotifications.close();
 
             // Используем только cookie, токен в query не нужен
-            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`;
+            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`;            wsNotifications = new WebSocket(wsUrl);
             wsNotifications = new WebSocket(wsUrl);
-
             wsNotifications.onopen = () => {
                 console.log('WebSocket уведомлений подключён');
             };
