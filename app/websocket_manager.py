@@ -46,6 +46,7 @@ class ConnectionManager:
 
         for ws in list(self.active_connections[doc_id]):
             try:
+                print(f"RAW JSON: {json.dumps(message, ensure_ascii=False)}")
                 await ws.send_json(message)
             except:
                 dead.append(ws)
@@ -58,7 +59,7 @@ class ConnectionManager:
             return
 
         dead = []
-
+        print(f"RAW JSON: {json.dumps(message, ensure_ascii=False)}")
         for ws in list(self.user_connections[user_id]):
             try:
                 text = json.dumps(message, ensure_ascii=False)
