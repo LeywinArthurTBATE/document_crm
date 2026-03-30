@@ -78,7 +78,7 @@ class DocumentService:
                 entity_id=doc.id,
                 is_read=False
             ))
-
+            print(doc.title)
             await manager.send_to_user(str(uid), {
                 "type": "notification",
                 "event": event,
