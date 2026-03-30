@@ -219,7 +219,10 @@
                     if (!url && data.document_id) {
                         url = `/documents/${data.document_id}/view`;
                     }
-
+                    console.log("RAW:", event.data);
+                    console.log("PARSED:", msg);
+                    console.log("DATA:", msg.data);
+                    console.log("TITLE:", msg.data?.document_title);
                     // Формируем текст сообщения в зависимости от типа события
                     switch (evt) {
                         case 'message':
