@@ -79,6 +79,7 @@ class DocumentService:
                 is_read=False
             ))
             print(doc.title)
+            print(users_map.get(user.id))
             await manager.send_to_user(str(uid), {
                 "type": "notification",
                 "event": event,
