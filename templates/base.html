@@ -192,7 +192,7 @@
             if (wsNotifications) wsNotifications.close();
 
             // Используем только cookie, токен в query не нужен
-            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`;            wsNotifications = new WebSocket(wsUrl);
+            const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/auth/ws/notifications`;            wsNotifications = new WebSocket(wsUrl);
             wsNotifications = new WebSocket(wsUrl);
             wsNotifications.onopen = () => {
                 console.log('WebSocket уведомлений подключён');
