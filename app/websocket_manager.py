@@ -61,9 +61,10 @@ class ConnectionManager:
 
         for ws in list(self.user_connections[user_id]):
             try:
-
+                text = json.dumps(message, ensure_ascii=False)
+                print(text)
                 await ws.send_text(
-                    json.dumps(message, ensure_ascii=False)
+                    text
                 )
             except:
                 dead.append(ws)
