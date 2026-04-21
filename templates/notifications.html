@@ -2,86 +2,339 @@
 
 {% block title %}Уведомления{% endblock %}
 
+{% block extra_head %}
+<style>
+    .notification-item {
+        transition: all 0.2s ease;
+    }
+    .notification-item.unread {
+        background-color: #eff6ff;
+        border-left-color: #3b82f6;
+    }
+    .notification-item.read {
+        background-color: white;
+        border-left-color: #e5e7eb;
+    }
+    .notification-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f3f4f6;
+    }
+    .toast-notification {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        background: #1f2937;
+        color: white;
+        padding: 0.75rem 1.25rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        z-index: 1000;
+        animation: slideUp 0.3s ease;
+        cursor: pointer;
+        max-width: 320px;
+    }
+    @keyframes slideUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .load-more-btn {
+        text-align: center;
+        padding: 0.75rem;
+        background: #f9fafb;
+        border-radius: 0.75rem;
+        margin-top: 1rem;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .load-more-btn:hover {
+        background: #f3f4f6;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="max-w-3xl mx-auto py-6">
-    <div class="flex justify-between items-center mb-4">
-        <h1 class="text-2xl font-bold">Уведомления</h1>
-        <button id="markAllReadBtn" class="text-sm text-blue-600 hover:underline">Прочитать все</button>
+<div class="max-w-4xl mx-auto py-6">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-bell text-blue-500"></i>
+            Уведомления
+        </h1>
+        <button id="markAllReadBtn" class="text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1.5 rounded-lg transition">
+            <i class="fas fa-check-double mr-1"></i> Прочитать все
+        </button>
     </div>
+
     <div id="notificationsList" class="space-y-3">
-        <!-- уведомления будут загружены сюда -->
-        <div class="text-center text-gray-400 py-8">Загрузка...</div>
+        <div class="text-center text-gray-400 py-12">
+            <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+            <p>Загрузка...</p>
+        </div>
+    </div>
+
+    <div id="paginationLoader" class="hidden text-center py-4">
+        <i class="fas fa-spinner fa-spin text-blue-500"></i>
     </div>
 </div>
 
 <script>
-    // Функция загрузки уведомлений
-    async function loadNotifications() {
-        const res = await fetch('/users/me/notifications');
-        const data = await res.json();
-        const container = document.getElementById('notificationsList');
-        if (data.length === 0) {
-            container.innerHTML = '<div class="text-center text-gray-400 py-8">Нет уведомлений</div>';
-            return;
-        }
-        container.innerHTML = data.map(n => renderNotification(n)).join('');
+    let isLoading = false;
+    let currentOffset = 0;
+    let hasMore = true;
+    let initialLoadDone = false;
+
+    // Функция получения иконки по типу
+    function getNotificationIcon(type) {
+        const icons = {
+            'message': 'fa-comment-dots',
+            'status_change': 'fa-exchange-alt',
+            'assign': 'fa-user-plus',
+            'deadline_change': 'fa-calendar-alt',
+            'overdue': 'fa-exclamation-triangle',
+            'new_document': 'fa-file-alt'
+        };
+        return icons[type] || 'fa-bell';
     }
 
+    // Форматирование текста уведомления
+    function formatNotificationText(notif) {
+        switch (notif.type) {
+            case 'message':
+                return `<span class="font-medium">${escapeHtml(notif.actor_name || 'Пользователь')}</span> написал(а) в чате: «${escapeHtml(notif.message_text || '')}»`;
+            case 'status_change':
+                let newStatus = notif.extra_data?.new_status || 'изменён';
+                return `Статус документа изменён на «${getStatusText(newStatus)}»`;
+            case 'assign':
+                let executor = notif.extra_data?.new_executor || '';
+                return `Вы назначены исполнителем документа${executor ? ` (${escapeHtml(executor)})` : ''}`;
+            case 'deadline_change':
+                let newDeadline = notif.extra_data?.new_deadline || '';
+                return `Срок выполнения изменён на ${newDeadline || 'не указан'}`;
+            case 'overdue':
+                return `⚠️ <span class="text-red-600 font-medium">Документ просрочен!</span> ${notif.message_text || ''}`;
+            case 'new_document':
+                return `Создан новый документ от ${escapeHtml(notif.actor_name || 'пользователя')}`;
+            default:
+                return 'Новое уведомление';
+        }
+    }
+
+    function getStatusText(statusCode) {
+        const map = {
+            'NEW': 'Ожидает',
+            'IN_PROGRESS': 'В работе',
+            'ON_REVIEW': 'На проверке',
+            'REJECTED': 'Отклонено',
+            'REVISION': 'На доработке',
+            'CANCELLED': 'Отменено',
+            'PAUSED': 'Пауза',
+            'DONE': 'Выполнено'
+        };
+        return map[statusCode] || statusCode;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    // Рендер одного уведомления
     function renderNotification(notif) {
         const isUnread = !notif.is_read;
-        const icon = notif.type === 'message' ? 'fa-comment' :
-                     notif.type === 'status_change' ? 'fa-exchange-alt' :
-                     notif.type === 'assign' ? 'fa-user-plus' :
-                     notif.type === 'deadline_change' ? 'fa-calendar-alt' :
-                     notif.type === 'overdue' ? 'fa-exclamation-triangle' :
-                     notif.type === 'new_document' ? 'fa-file-alt' : 'fa-bell';
+        const icon = getNotificationIcon(notif.type);
+        const docLink = notif.entity_id ? `/documents/${notif.entity_id}/view` : '#';
+        const formattedText = formatNotificationText(notif);
+
         return `
-            <div class="bg-white rounded-lg shadow-sm border-l-4 ${isUnread ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} p-4 flex justify-between items-start">
+            <div class="notification-item ${isUnread ? 'unread' : 'read'} border-l-4 rounded-lg shadow-sm p-4 transition-all">
                 <div class="flex gap-3">
-                    <i class="fas ${icon} text-gray-500 mt-1"></i>
-                    <div>
-                        <p class="text-gray-800">${notif.type === 'message' ? 'Новое сообщение' : 'Изменение документа'}</p>
-                        <p class="text-sm text-gray-500">${new Date(notif.created_at).toLocaleString()}</p>
+                    <div class="notification-icon">
+                        <i class="fas ${icon} text-gray-600"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <a href="${docLink}" class="font-semibold text-gray-800 hover:text-blue-600 transition">
+                                    ${escapeHtml(notif.document_title) || 'Документ'}
+                                </a>
+                                <div class="text-sm text-gray-600 mt-1">
+                                    ${formattedText}
+                                </div>
+                                <div class="text-xs text-gray-400 mt-2">
+                                    <i class="far fa-clock mr-1"></i> ${new Date(notif.created_at).toLocaleString()}
+                                </div>
+                            </div>
+                            ${!notif.is_read ? `
+                                <button onclick="markAsRead('${notif.id}')" class="text-xs bg-white border border-blue-300 text-blue-600 px-2 py-1 rounded-md hover:bg-blue-50 transition">
+                                    <i class="fas fa-check mr-1"></i> Прочитано
+                                </button>
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
-                ${!notif.is_read ? `<button onclick="markRead('${notif.id}')" class="text-xs text-blue-600 hover:underline">Прочитано</button>` : ''}
             </div>
         `;
     }
 
-    // WebSocket для обновления в реальном времени
-    function connectNotifications() {
-        const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/notifications`);
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'notification') {
-                // Добавляем новое уведомление в начало списка
-                const container = document.getElementById('notificationsList');
-                const newNotifHtml = renderNotification({
-                    id: Date.now(), // временный id, можно заменить на реальный после загрузки
-                    type: data.data.type,
-                    is_read: false,
-                    created_at: new Date().toISOString()
-                });
-                container.insertAdjacentHTML('afterbegin', newNotifHtml);
-                // Можно также показать тост
-                showToast('Новое уведомление!', 'info');
+    // Загрузка уведомлений (с пагинацией)
+    async function loadNotifications(reset = false) {
+        if (isLoading) return;
+        if (reset) {
+            currentOffset = 0;
+            hasMore = true;
+            document.getElementById('notificationsList').innerHTML = '<div class="text-center py-8"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+        }
+        if (!hasMore && !reset) return;
+
+        isLoading = true;
+        if (!reset) document.getElementById('paginationLoader').classList.remove('hidden');
+
+        try {
+            const url = `/users/me/notifications?limit=20&offset=${currentOffset}`;
+            const res = await fetch(url, { credentials: 'include' });
+            const data = await res.json();
+
+            if (reset) {
+                if (data.length === 0) {
+                    document.getElementById('notificationsList').innerHTML = '<div class="text-center text-gray-400 py-12"><i class="fas fa-bell-slash text-3xl mb-2"></i><p>Уведомлений пока нет</p></div>';
+                } else {
+                    document.getElementById('notificationsList').innerHTML = data.map(n => renderNotification(n)).join('');
+                }
+            } else {
+                if (data.length) {
+                    const container = document.getElementById('notificationsList');
+                    container.insertAdjacentHTML('beforeend', data.map(n => renderNotification(n)).join(''));
+                }
             }
+
+            currentOffset += data.length;
+            hasMore = data.length === 20;
+        } catch (err) {
+            console.error(err);
+            if (reset) {
+                document.getElementById('notificationsList').innerHTML = '<div class="text-center text-red-500 py-8">Ошибка загрузки</div>';
+            }
+        } finally {
+            isLoading = false;
+            document.getElementById('paginationLoader').classList.add('hidden');
+        }
+    }
+
+    // Отметить одно уведомление как прочитанное
+    async function markAsRead(id) {
+        try {
+            await fetch(`/users/me/notifications/${id}`, { method: 'PATCH', credentials: 'include' });
+            // обновляем только это уведомление в DOM
+            const notifDiv = document.querySelector(`.notification-item button[onclick="markAsRead('${id}')"]`)?.closest('.notification-item');
+            if (notifDiv) {
+                notifDiv.classList.remove('unread');
+                notifDiv.classList.add('read');
+                const btn = notifDiv.querySelector('button');
+                if (btn) btn.remove();
+            }
+            // обновляем глобальный счётчик
+            if (window.loadUnreadCount) window.loadUnreadCount();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // Прочитать все
+    document.getElementById('markAllReadBtn').addEventListener('click', async () => {
+        try {
+            await fetch('/users/me/notifications/read-all', { method: 'PATCH', credentials: 'include' });
+            // Перезагружаем список сбросив кеш
+            currentOffset = 0;
+            hasMore = true;
+            await loadNotifications(true);
+            if (window.loadUnreadCount) window.loadUnreadCount();
+        } catch (err) {
+            console.error(err);
+        }
+    });
+
+    // Обработчик нового уведомления из WebSocket (глобальное событие из base.html)
+    function onNotificationReceived(event) {
+        const notif = event.detail;
+        if (!notif || notif.type !== 'notification') return;
+
+        // Формируем объект уведомления для вставки в начало списка
+        const newNotif = {
+            id: notif.meta?.id || Date.now(),
+            type: notif.event,
+            entity_id: notif.data.document_id,
+            is_read: false,
+            created_at: notif.meta?.created_at || new Date().toISOString(),
+            document_title: notif.data.document_title,
+            actor_name: notif.data.actor_name,
+            message_text: notif.data.text || notif.data.message_text,
+            extra_data: notif.data.extra || null
         };
-        ws.onclose = () => setTimeout(connectNotifications, 5000);
+
+        const container = document.getElementById('notificationsList');
+        const emptyMsg = container.querySelector('.text-center.text-gray-400');
+        if (emptyMsg && emptyMsg.innerText.includes('Уведомлений пока нет')) {
+            container.innerHTML = renderNotification(newNotif);
+        } else {
+            container.insertAdjacentHTML('afterbegin', renderNotification(newNotif));
+        }
+
+        // Показать всплывающий тост
+        showToastNotification(newNotif);
+        if (window.loadUnreadCount) window.loadUnreadCount();
     }
 
-    function markRead(id) {
-        fetch(`/users/me/notifications/${id}`, { method: 'PATCH' }).then(() => loadNotifications());
+    function showToastNotification(notif) {
+        const toast = document.createElement('div');
+        toast.className = 'toast-notification';
+        toast.innerHTML = `
+            <div class="flex items-start gap-2">
+                <i class="fas ${getNotificationIcon(notif.type)} mt-0.5"></i>
+                <div>
+                    <div class="font-semibold">${escapeHtml(notif.document_title || 'Уведомление')}</div>
+                    <div class="text-sm opacity-90">${formatNotificationText(notif).replace(/<[^>]*>/g, '')}</div>
+                </div>
+            </div>
+        `;
+        toast.onclick = () => {
+            if (notif.entity_id) window.location.href = `/documents/${notif.entity_id}/view`;
+            toast.remove();
+        };
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 5000);
     }
 
-    document.getElementById('markAllReadBtn').onclick = () => {
-        fetch('/users/me/notifications/read-all', { method: 'PATCH' }).then(() => loadNotifications());
-    };
+    // Бесконечная прокрутка
+    function initInfiniteScroll() {
+        window.addEventListener('scroll', () => {
+            if (isLoading || !hasMore) return;
+            const scrollTop = window.scrollY;
+            const windowHeight = window.innerHeight;
+            const docHeight = document.documentElement.scrollHeight;
+            if (scrollTop + windowHeight >= docHeight - 300) {
+                loadNotifications(false);
+            }
+        });
+    }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        loadNotifications();
-        connectNotifications();
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadNotifications(true);
+        initInfiniteScroll();
+
+        // Подписываемся на глобальное событие уведомлений (генерируется в base.html)
+        window.addEventListener('notificationReceived', onNotificationReceived);
+
+        // Также можно вручную вызвать загрузку непрочитанных для бейджа
+        if (window.loadUnreadCount) window.loadUnreadCount();
     });
 </script>
 {% endblock %}

@@ -71,11 +71,14 @@ class DocumentService:
         executor_name = users_map.get(doc.executor_id)
 
         # -------------------- HELPER --------------------
-        async def notify(uid, event, notif_type):
+        async def notify(uid, event, notif_type, extra=None):
             db.add(Notification(
                 user_id=uid,
                 type=notif_type,
                 entity_id=doc.id,
+                document_title=doc.title,
+                actor_name=users_map.get(user.id),
+                extra_data=extra,
                 is_read=False
             ))
             print(doc.title)
@@ -103,17 +106,17 @@ class DocumentService:
         if "executor_id" in updates and old_executor_id != doc.executor_id:
             for uid in participants:
                 if uid != user.id:
-                    await notify(uid, "assign", "assign")
+                    await notify(uid, "assign", "assign", extra={"new_executor": executor_name})
 
         if "status" in updates and old_status != doc.status:
             for uid in participants:
                 if uid != user.id:
-                    await notify(uid, "status_change", "status_change")
+                    await notify(uid, "status_change", "status_change", extra={"new_status": doc.status.value})
 
         if "deadline" in updates:
             for uid in participants:
                 if uid != user.id:
-                    await notify(uid, "deadline_change", "deadline_change")
+                    await notify(uid, "deadline_change", "deadline_change", extra={"new_deadline": doc.deadline.isoformat()})
 
         await db.commit()
         return doc
@@ -157,6 +160,8 @@ class DocumentService:
                 user_id=doc.executor_id,
                 type="new_document",
                 entity_id=doc.id,
+                document_title=doc.title,
+                actor_name=users_map.get(author_id),
                 is_read=False
             ))
 

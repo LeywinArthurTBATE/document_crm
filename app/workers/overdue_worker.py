@@ -50,6 +50,9 @@ async def process_overdue_documents(db: AsyncSession):
                     user_id=uid,
                     type="overdue",
                     entity_id=doc.id,
+                    document_title=doc.title,
+                    actor_name="Система",
+                    message_text=f"Документ просрочен (срок {doc.deadline})",
                     is_read=False
                 )
                 db.add(notification)

@@ -125,10 +125,14 @@ async def send_message(
         if uid == user.id:
             continue
 
+        # Внутри цикла for uid in participants:
         db.add(Notification(
             user_id=uid,
             type="message",
             entity_id=doc_id,
+            document_title=doc.title,
+            actor_name=user.full_name,
+            message_text=text,
             is_read=False
         ))
 
@@ -230,10 +234,14 @@ async def websocket_endpoint(
                 if uid == user.id:
                     continue
 
+                # Внутри цикла for uid in participants:
                 db.add(Notification(
                     user_id=uid,
                     type="message",
                     entity_id=doc_id,
+                    document_title=doc.title,
+                    actor_name=user.full_name,
+                    message_text=text,
                     is_read=False
                 ))
 

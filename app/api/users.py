@@ -164,6 +164,8 @@ from sqlalchemy import update as sql_update
 @router.get("/me/notifications")
 async def get_my_notifications(
     unread_only: bool = False,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -171,6 +173,7 @@ async def get_my_notifications(
     if unread_only:
         query = query.where(Notification.is_read.is_(False))
     query = query.order_by(Notification.created_at.desc())
+    query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     notifications = result.scalars().all()
     return [
@@ -180,6 +183,10 @@ async def get_my_notifications(
             "entity_id": n.entity_id,
             "is_read": n.is_read,
             "created_at": n.created_at,
+            "document_title": n.document_title,
+            "actor_name": n.actor_name,
+            "message_text": n.message_text,
+            "extra_data": n.extra_data,
         }
         for n in notifications
     ]
