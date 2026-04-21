@@ -59,6 +59,7 @@ async def process_overdue_documents(db: AsyncSession):
                     "type": "notification",
                     "event": "overdue",
                     "data": {
+                        "id": notification.id,
                         "document_id": str(doc.id),
                         "document_title": doc.title,
                         "url": f"/documents/{doc.id}/view",

@@ -84,6 +84,7 @@ class DocumentService:
                 "type": "notification",
                 "event": event,
                 "data": {
+                    "id": doc.id,
                     "document_id": str(doc.id),
                     "document_title": doc.title,
                     "url": f"/documents/{doc.id}/view",
@@ -163,6 +164,7 @@ class DocumentService:
                 "type": "notification",
                 "event": "new_document",
                 "data": {
+                    "id": doc.id,
                     "document_id": str(doc.id),
                     "document_title": doc.title,
                     "url": f"/documents/{doc.id}/view",

@@ -169,7 +169,7 @@ async def get_my_notifications(
 ):
     query = select(Notification).where(Notification.user_id == current_user.id)
     if unread_only:
-        query = query.where(Notification.is_read == False)
+        query = query.where(Notification.is_read.is_(False))
     query = query.order_by(Notification.created_at.desc())
     result = await db.execute(query)
     notifications = result.scalars().all()

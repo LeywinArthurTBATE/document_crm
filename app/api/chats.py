@@ -135,6 +135,7 @@ async def send_message(
         await manager.send_to_user(str(uid), {
             "type": "notification",
             "data": {
+                "id": str(msg.id),
                 "type": "message",
                 "document_id": str(doc_id),
                 "author_name": user.full_name,
