@@ -88,7 +88,7 @@ class DocumentRepository:
 
         for doc, executor, author in rows:
             data.append({
-                "id": doc.id,
+                "id": str(doc.id),
                 "title": doc.title,
                 "status": doc.status.value,
                 "deadline": doc.deadline,
