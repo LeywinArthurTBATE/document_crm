@@ -218,4 +218,5 @@ async def mark_all_notifications_read(
         .execution_options(synchronize_session=False)
     )
     await db.commit()
+
     return {"status": "all read"}
