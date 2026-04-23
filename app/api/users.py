@@ -15,26 +15,6 @@ from app.models.user import User, UserRole
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    if current_user.role.code != "ADMIN":
-        raise HTTPException(403, "Not enough permissions")
-
-    result = await db.execute(
-        select(User)
-        .options(selectinload(User.role))
-        .where(User.id == user_id)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(404, "User not found")
-
-    return user
 
 @router.post("", response_model=UserResponse)
 async def create_user(
