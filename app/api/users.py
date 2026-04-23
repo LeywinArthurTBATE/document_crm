@@ -215,6 +215,7 @@ async def mark_all_notifications_read(
         sql_update(Notification)
         .where(Notification.user_id == current_user.id, Notification.is_read == False)
         .values(is_read=True)
+        .execution_options(synchronize_session=False)
     )
     await db.commit()
     return {"status": "all read"}
