@@ -191,6 +191,20 @@ async def get_my_notifications(
         for n in notifications
     ]
 
+@router.patch("/me/notifications/read-all")
+async def mark_all_notifications_read(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await db.execute(
+        sql_update(Notification)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+
+    return {"status": "all read"}
 
 @router.patch("/me/notifications/{notification_id}")
 async def mark_notification_read(
@@ -206,17 +220,3 @@ async def mark_notification_read(
     return {"status": "read"}
 
 
-@router.patch("/me/notifications/read-all")
-async def mark_all_notifications_read(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    await db.execute(
-        sql_update(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read == False)
-        .values(is_read=True)
-        .execution_options(synchronize_session=False)
-    )
-    await db.commit()
-
-    return {"status": "all read"}
